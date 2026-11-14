@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+.analytics {
+  --accent: #1e3a5f;
+  --accent-soft: #2f5584;
+  --accent-light: #e7eef6;
+}
+
 :root {
   --bg: #f7f4ee;
   --bg-secondary: #efe8d9;

@@ -1,5 +1,9 @@
 # Vercel Deployment - Environment Variables
 
+The Vercel build command is `prisma generate && next build` (Prisma 6.16.3). `prisma migrate deploy` does not accept `--skip-generate`. Apply migrations separately with `npx prisma migrate deploy` when `DATABASE_URL` points at the target database. Do not run `prisma db push` against production.
+
+This schema uses SQLite. A `file:` database is not durable on Vercel serverless. Production data needs a hosted database and a matching migration history before `migrate deploy` is added to the release process.
+
 When deploying to Vercel, ensure the following environment variables are set in your Vercel project settings:
 
 ## Required Environment Variables
