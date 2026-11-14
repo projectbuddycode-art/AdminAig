@@ -4,6 +4,7 @@ import { listCustomers, listPlans } from "@/server/queries";
 import { ButtonLink, EmptyState, PageHeader, Pagination, StatusBadge, TableWrap } from "@/components/ui";
 import { CustomerRowActions } from "@/components/row-actions";
 import { paginationSchema } from "@/lib/validations";
+import { currentAdmin } from "@/lib/current-admin";
 import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,11 @@ export default async function CustomersPage({
     planId: typeof raw.planId === "string" ? raw.planId : "",
     page: raw.page ?? 1,
   });
-  const [data, plans] = await Promise.all([listCustomers(prisma, parsed), listPlans(prisma)]);
+  const admin = await currentAdmin();
+  const [data, plans] = await Promise.all([
+    listCustomers(prisma, { ...parsed, tenant: admin.tenant }),
+    listPlans(prisma, admin.tenant),
+  ]);
   const href = (page: number) => {
     const params = new URLSearchParams();
     if (parsed.q) params.set("q", parsed.q);

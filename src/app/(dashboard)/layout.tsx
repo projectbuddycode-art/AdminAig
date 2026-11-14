@@ -1,12 +1,12 @@
-import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { currentAdmin } from "@/lib/current-admin";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const admin = await currentAdmin().catch(() => null);
+  if (!admin) redirect("/login");
   return (
-    <AppShell adminName={session.user.name} adminEmail={session.user.email}>
+    <AppShell adminName={admin.name} adminEmail={admin.email} role={admin.role} tenant={admin.tenant}>
       {children}
     </AppShell>
   );

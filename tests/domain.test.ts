@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "@/lib/prisma-client";
 import { AppError } from "@/lib/errors";
 import {
   activateCustomer,
@@ -24,7 +24,7 @@ process.env.DATABASE_URL = `file:${dbPath}`;
 process.env.CUSTOMER_JWT_SECRET = "test-customer-secret-32-characters!";
 process.env.AUTH_SECRET = "test-auth-secret-32-characters-long";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 const actor = { type: "ADMIN" as const, id: "admin-test", email: "admin@test.local" };
 
 beforeAll(() => {
@@ -36,6 +36,12 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
+  await prisma.loginEvent.deleteMany();
+  await prisma.usageEntry.deleteMany();
+  await prisma.notificationMessage.deleteMany();
+  await prisma.payment.deleteMany();
+  await prisma.maintenanceRecord.deleteMany();
+  await prisma.machineError.deleteMany();
   await prisma.activityLog.deleteMany();
   await prisma.machineAssignment.deleteMany();
   await prisma.machine.deleteMany();

@@ -6,13 +6,15 @@ import { PlanForm } from "@/components/plan-form";
 import { ConfirmSubmit } from "@/components/forms";
 import { setPlanStatusAction } from "@/server/actions";
 import { asFormAction } from "@/lib/form-action";
+import { currentAdmin } from "@/lib/current-admin";
 import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
 
 export default async function PlanDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const plan = await getPlanDetail(prisma, id);
+  const admin = await currentAdmin();
+  const plan = await getPlanDetail(prisma, id, admin.tenant);
   if (!plan) notFound();
 
   return (

@@ -43,6 +43,9 @@ describe("entitlement", () => {
         isEntitled: true,
         planId: "p1",
         planName: "Test",
+        exportAllowance: 0,
+        exportsUsed: 0,
+        creditsRemaining: 0,
         features: {
           maxDevices: 1,
           monthlyExportLimit: null,

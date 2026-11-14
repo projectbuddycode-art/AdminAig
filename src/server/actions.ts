@@ -10,6 +10,10 @@ import {
   activateMachine,
   assignMachine,
   changeCustomerPlan,
+  extendMembership,
+  grantCredits,
+  queueNotification,
+  recordMaintenance,
   createCustomer,
   createMachine,
   createPlan,
@@ -40,7 +44,11 @@ async function actor(): Promise<AuditActor> {
   if (!session?.user?.id) {
     throw new Error("Unauthorized");
   }
-  return { type: "ADMIN", id: session.user.id, email: session.user.email };
+  const admin = await prisma.admin.findUnique({ where: { id: session.user.id } });
+  if (!admin || admin.status !== "ACTIVE") {
+    throw new Error("Unauthorized");
+  }
+  return { type: "ADMIN", id: admin.id, email: admin.email, role: admin.role, tenant: admin.tenant };
 }
 
 function fail(error: unknown): { ok: false; error: string } {
@@ -152,7 +160,12 @@ export async function changePlanAction(formData: FormData) {
       customerId: formData.get("customerId"),
       planId: formData.get("planId"),
     });
-    await changeCustomerPlan({ db: prisma, actor: await actor() }, parsed.customerId, parsed.planId);
+    await changeCustomerPlan(
+      { db: prisma, actor: await actor() },
+      parsed.customerId,
+      parsed.planId,
+      String(formData.get("reason") || "Plan change"),
+    );
     revalidatePath(`/customers/${parsed.customerId}`);
     revalidatePath("/subscriptions");
     return { ok: true as const };
@@ -296,6 +309,66 @@ export async function activateMachineAction(machineDbId: string) {
   try {
     await activateMachine({ db: prisma, actor: await actor() }, machineDbId);
     revalidatePath("/machines");
+    return { ok: true as const };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function extendMembershipAction(formData: FormData) {
+  try {
+    const customerId = String(formData.get("customerId") ?? "");
+    const days = Number(formData.get("days"));
+    const reason = String(formData.get("reason") ?? "");
+    await extendMembership({ db: prisma, actor: await actor() }, customerId, days, reason);
+    revalidatePath(`/customers/${customerId}`);
+    return { ok: true as const };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function grantCreditsAction(formData: FormData) {
+  try {
+    const customerId = String(formData.get("customerId") ?? "");
+    const credits = Number(formData.get("credits"));
+    const reason = String(formData.get("reason") ?? "");
+    await grantCredits({ db: prisma, actor: await actor() }, customerId, credits, reason);
+    revalidatePath(`/customers/${customerId}`);
+    return { ok: true as const };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function queueNotificationAction(formData: FormData) {
+  try {
+    const customerId = String(formData.get("customerId") ?? "") || undefined;
+    const channel = String(formData.get("channel") ?? "IN_APP") as "EMAIL" | "WHATSAPP" | "IN_APP";
+    const row = await queueNotification(
+      { db: prisma, actor: await actor() },
+      {
+        customerId,
+        channel,
+        templateKey: String(formData.get("templateKey") ?? "service"),
+        subject: String(formData.get("subject") ?? ""),
+        body: String(formData.get("body") ?? ""),
+        idempotencyKey: String(formData.get("idempotencyKey") || "") || undefined,
+      },
+    );
+    if (customerId) revalidatePath(`/customers/${customerId}`);
+    revalidatePath("/notifications");
+    return { ok: true as const, status: row.status };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function recordMaintenanceAction(formData: FormData) {
+  try {
+    const machineDbId = String(formData.get("machineDbId") ?? "");
+    await recordMaintenance({ db: prisma, actor: await actor() }, machineDbId, String(formData.get("note") ?? ""));
+    revalidatePath(`/machines/${machineDbId}`);
     return { ok: true as const };
   } catch (error) {
     return fail(error);

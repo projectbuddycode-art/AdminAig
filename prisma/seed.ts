@@ -1,7 +1,7 @@
-import { PrismaClient } from "@prisma/client";
 import { hash } from "bcryptjs";
+import { createPrismaClient } from "../src/lib/prisma-client";
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 async function main() {
   const email = (process.env.ADMIN_EMAIL ?? "admin@aig.local").toLowerCase();

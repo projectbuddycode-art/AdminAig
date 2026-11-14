@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
+  engineType = "client"
 }
 
 datasource db {
@@ -8,32 +9,48 @@ datasource db {
 }
 
 model Admin {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   name         String
-  email        String   @unique
+  email        String    @unique
   passwordHash String
-  role         String   @default("ADMIN")
-  status       String   @default("ACTIVE")
-  createdAt    DateTime @default(now())
+  role         String    @default("ADMIN")
+  status       String    @default("ACTIVE")
+  tenant       String    @default("production")
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
 
   @@index([status])
+  @@index([tenant])
 }
 
 model Customer {
-  id            String              @id @default(cuid())
-  name          String
-  email         String              @unique
-  phone         String
-  passwordHash  String
-  status        String              @default("ACTIVE")
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  subscriptions Subscription[]
-  machines      Machine[]
-  assignments   MachineAssignment[]
+  id                   String              @id @default(cuid())
+  name                 String
+  email                String              @unique
+  phone                String
+  passwordHash         String
+  status               String              @default("ACTIVE")
+  tenant               String              @default("production")
+  demoLabel            String?
+  emailVerified        Boolean             @default(false)
+  loginMethod          String              @default("PASSWORD")
+  source               String              @default("ADMIN")
+  lastLoginAt          DateTime?
+  passwordChangedAt    DateTime?
+  complimentaryCredits Int                 @default(0)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  subscriptions        Subscription[]
+  machines             Machine[]
+  assignments          MachineAssignment[]
+  usageEntries         UsageEntry[]
+  payments             Payment[]
+  notifications        NotificationMessage[]
+  loginEvents          LoginEvent[]
 
   @@index([status])
   @@index([createdAt])
+  @@index([tenant])
 }
 
 model Plan {
@@ -43,45 +60,71 @@ model Plan {
   durationDays  Int
   status        String         @default("ACTIVE")
   featuresJson  String         @default("{}")
+  priceCents    Int            @default(0)
+  currency      String         @default("INR")
+  tenant        String         @default("production")
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   subscriptions Subscription[]
 
   @@index([status])
+  @@index([tenant])
 }
 
 model Subscription {
-  id         String    @id @default(cuid())
-  customerId String
-  planId     String
-  status     String    @default("ACTIVE")
-  startDate  DateTime
-  expiryDate DateTime
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  plan       Plan      @relation(fields: [planId], references: [id], onDelete: Restrict)
+  id                   String    @id @default(cuid())
+  customerId           String
+  planId               String
+  status               String    @default("ACTIVE")
+  startDate            DateTime
+  expiryDate           DateTime
+  renewalDate          DateTime?
+  exportAllowance      Int       @default(0)
+  exportsUsed          Int       @default(0)
+  creditsRemaining     Int       @default(0)
+  snapshotFeaturesJson String    @default("{}")
+  tenant               String    @default("production")
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  customer             Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  plan                 Plan      @relation(fields: [planId], references: [id], onDelete: Restrict)
+  payments             Payment[]
 
   @@index([customerId, status])
   @@index([planId])
   @@index([expiryDate])
   @@index([status])
+  @@index([tenant])
 }
 
 model Machine {
-  id              String               @id @default(cuid())
-  machineId       String               @unique
-  customerId      String?
-  status          String               @default("UNASSIGNED")
-  firmwareVersion String?
-  lastSeenAt      DateTime?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  customer        Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  assignments     MachineAssignment[]
+  id                  String              @id @default(cuid())
+  machineId           String              @unique
+  customerId          String?
+  status              String              @default("UNASSIGNED")
+  firmwareVersion     String?
+  model               String              @default("DiamondCam")
+  serialNumber        String?
+  hardwareRevision    String?
+  healthStatus        String              @default("UNKNOWN")
+  motorConfig         String              @default("{}")
+  lightingConfig      String              @default("{}")
+  lastSeenAt          DateTime?
+  telemetryVerified   Boolean             @default(false)
+  telemetrySimulated  Boolean             @default(false)
+  tenant              String              @default("production")
+  demoLabel           String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  customer            Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignments         MachineAssignment[]
+  usageEntries        UsageEntry[]
+  maintenance         MaintenanceRecord[]
+  errors              MachineError[]
 
   @@index([customerId])
   @@index([status])
+  @@index([tenant])
 }
 
 model MachineAssignment {
@@ -99,18 +142,145 @@ model MachineAssignment {
 }
 
 model ActivityLog {
-  id         String    @id @default(cuid())
-  event      String
-  actorType  String
-  actorId    String?
-  actorEmail String?
-  targetType String
-  targetId   String
-  metadata   String    @default("{}")
-  createdAt  DateTime  @default(now())
+  id            String   @id @default(cuid())
+  event         String
+  actorType     String
+  actorId       String?
+  actorEmail    String?
+  adminRole     String?
+  targetType    String
+  targetId      String
+  customerId    String?
+  machineRef    String?
+  metadata      String   @default("{}")
+  previousValue String?
+  newValue      String?
+  reason        String?
+  result        String   @default("SUCCESS")
+  ipAddress     String?
+  userAgent     String?
+  tenant        String   @default("production")
+  createdAt     DateTime @default(now())
 
   @@index([createdAt])
   @@index([event])
   @@index([targetType, targetId])
   @@index([actorId])
+  @@index([tenant])
+  @@index([customerId])
+}
+
+model LoginEvent {
+  id         String    @id @default(cuid())
+  tenant     String    @default("production")
+  actorType  String
+  actorId    String?
+  email      String
+  success    Boolean
+  method     String    @default("PASSWORD")
+  ipAddress  String?
+  userAgent  String?
+  sessionId  String?
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+
+  @@index([tenant, createdAt])
+  @@index([email])
+  @@index([actorId])
+}
+
+model UsageEntry {
+  id               String    @id @default(cuid())
+  tenant           String    @default("production")
+  customerId       String
+  machineId        String?
+  jobId            String
+  idempotencyKey   String    @unique
+  sourceRecording  String?
+  preset           String?
+  status           String
+  startedAt        DateTime
+  completedAt      DateTime?
+  durationMs       Int?
+  creditsConsumed  Int       @default(0)
+  storageMb        Int?
+  exportDate       DateTime?
+  outputRef        String?
+  failureReason    String?
+  charged          Boolean   @default(false)
+  customer         Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  machine          Machine?  @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+
+  @@unique([tenant, jobId])
+  @@index([customerId, createdAt])
+  @@index([status])
+  @@index([tenant])
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  tenant          String        @default("production")
+  customerId      String
+  subscriptionId  String?
+  amountCents     Int
+  currency        String        @default("INR")
+  status          String
+  method          String
+  reference       String
+  invoiceNumber   String?
+  simulated       Boolean       @default(false)
+  demoLabel       String?
+  paidAt          DateTime?
+  createdAt       DateTime      @default(now())
+  customer        Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([tenant, createdAt])
+  @@index([customerId])
+  @@index([status])
+}
+
+model NotificationMessage {
+  id             String    @id @default(cuid())
+  tenant         String    @default("production")
+  customerId     String?
+  channel        String
+  templateKey    String
+  subject        String
+  body           String
+  status         String
+  simulated      Boolean   @default(false)
+  error          String?
+  idempotencyKey String?   @unique
+  createdAt      DateTime  @default(now())
+  sentAt         DateTime?
+  customer       Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenant, createdAt])
+  @@index([customerId])
+  @@index([status])
+}
+
+model MaintenanceRecord {
+  id          String   @id @default(cuid())
+  machineId   String
+  note        String
+  performedBy String?
+  createdAt   DateTime @default(now())
+  machine     Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([machineId])
+}
+
+model MachineError {
+  id        String   @id @default(cuid())
+  machineId String
+  code      String
+  message   String
+  createdAt DateTime @default(now())
+  machine   Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([machineId])
 }

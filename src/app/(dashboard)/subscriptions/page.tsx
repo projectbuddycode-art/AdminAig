@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { listSubscriptions } from "@/server/queries";
 import { EmptyState, PageHeader, Pagination, StatusBadge, TableWrap } from "@/components/ui";
 import { paginationSchema } from "@/lib/validations";
+import { currentAdmin } from "@/lib/current-admin";
 import { differenceInCalendarDays, format } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,8 @@ export default async function SubscriptionsPage({
     status: typeof raw.status === "string" ? raw.status : "",
     page: raw.page ?? 1,
   });
-  const data = await listSubscriptions(prisma, parsed);
+  const admin = await currentAdmin();
+  const data = await listSubscriptions(prisma, { ...parsed, tenant: admin.tenant });
   const href = (page: number) => {
     const params = new URLSearchParams();
     if (parsed.q) params.set("q", parsed.q);

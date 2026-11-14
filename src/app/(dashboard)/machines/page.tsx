@@ -3,10 +3,10 @@ import { prisma } from "@/lib/db";
 import { listMachines } from "@/server/queries";
 import { ButtonLink, EmptyState, PageHeader, Pagination, StatusBadge, TableWrap } from "@/components/ui";
 import { paginationSchema } from "@/lib/validations";
-import { CONNECTIVITY_UNAVAILABLE } from "@/lib/constants";
 import { activateMachineAction, suspendMachineAction } from "@/server/actions";
 import { asFormAction } from "@/lib/form-action";
 import { ConfirmSubmit } from "@/components/forms";
+import { currentAdmin } from "@/lib/current-admin";
 import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,8 @@ export default async function MachinesPage({
     status: typeof raw.status === "string" ? raw.status : "",
     page: raw.page ?? 1,
   });
-  const data = await listMachines(prisma, parsed);
+  const admin = await currentAdmin();
+  const data = await listMachines(prisma, { ...parsed, tenant: admin.tenant });
   const href = (page: number) => {
     const params = new URLSearchParams();
     if (parsed.q) params.set("q", parsed.q);
@@ -40,7 +41,7 @@ export default async function MachinesPage({
         actions={<ButtonLink href="/machines/new">Register machine</ButtonLink>}
       />
       <p className="mb-5 text-sm text-[var(--text-secondary)]">
-        Account and assignment states come from the database. {CONNECTIVITY_UNAVAILABLE}.
+        Account states come from the database. A machine is online only after a verified heartbeat in the last 15 minutes.
       </p>
       <form className="mb-5 grid min-w-0 gap-3 sm:grid-cols-[1fr_180px_auto]" method="get">
         <input

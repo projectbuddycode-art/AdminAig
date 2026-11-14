@@ -3,6 +3,7 @@ import { listActivity } from "@/server/queries";
 import { EmptyState, PageHeader, Pagination, StatusBadge, TableWrap } from "@/components/ui";
 import { paginationSchema } from "@/lib/validations";
 import { AUDIT_EVENTS } from "@/lib/constants";
+import { currentAdmin } from "@/lib/current-admin";
 import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,8 @@ export default async function ActivityPage({
     to: typeof raw.to === "string" ? raw.to : "",
     page: raw.page ?? 1,
   });
-  const data = await listActivity(prisma, parsed);
+  const admin = await currentAdmin();
+  const data = await listActivity(prisma, { ...parsed, tenant: admin.tenant });
   const href = (page: number) => {
     const params = new URLSearchParams();
     if (parsed.q) params.set("q", parsed.q);
@@ -35,7 +37,16 @@ export default async function ActivityPage({
 
   return (
     <>
-      <PageHeader eyebrow="Audit" title="Activity" description="Newest events first. Actor, target and metadata are stored for every administrative change." />
+      <PageHeader
+        eyebrow="Audit"
+        title="Admin activity and audit logs"
+        description="Append-only server records. Each row shows the actor, previous value, new value, reason and time. Administrators cannot edit these rows from the dashboard."
+        actions={
+          <a className="text-sm font-semibold text-[var(--accent)]" href={`/api/admin/reports?kind=audit&tenant=${admin.tenant}`}>
+            Download CSV
+          </a>
+        }
+      />
       <form className="mb-5 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-6" method="get">
         <input
           name="q"
@@ -75,8 +86,10 @@ export default async function ActivityPage({
                 <th>Timestamp</th>
                 <th>Event</th>
                 <th>Actor</th>
-                <th>Target</th>
-                <th>Metadata</th>
+                <th>Before</th>
+                <th>After</th>
+                <th>Reason</th>
+                <th>Result</th>
               </tr>
             </thead>
             <tbody>
@@ -88,11 +101,10 @@ export default async function ActivityPage({
                     <StatusBadge value={row.actorType} />
                     <div className="mt-1 text-[var(--muted)]">{row.actorEmail ?? row.actorId ?? "system"}</div>
                   </td>
-                  <td>
-                    {row.targetType}
-                    <div className="max-w-[12rem] truncate text-[var(--muted)]">{row.targetId}</div>
-                  </td>
-                  <td className="max-w-[16rem] truncate text-xs text-[var(--muted)]">{row.metadata}</td>
+                  <td className="max-w-[14rem] truncate text-xs">{row.previousValue ?? "—"}</td>
+                  <td className="max-w-[14rem] truncate text-xs">{row.newValue ?? row.metadata}</td>
+                  <td className="max-w-[12rem] truncate text-xs">{row.reason ?? "—"}</td>
+                  <td>{row.result}</td>
                 </tr>
               ))}
             </tbody>

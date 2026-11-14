@@ -2,13 +2,14 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getDashboardMetrics } from "@/server/queries";
 import { ButtonLink, Card, EmptyState, KpiCard, PageHeader, SectionTitle, StatusBadge } from "@/components/ui";
-import { CONNECTIVITY_UNAVAILABLE } from "@/lib/constants";
+import { currentAdmin } from "@/lib/current-admin";
 import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const metrics = await getDashboardMetrics(prisma);
+  const admin = await currentAdmin();
+  const metrics = await getDashboardMetrics(prisma, admin.tenant);
   const kpis = [
     { label: "Total Customers", value: metrics.totalCustomers, description: "Registered customer accounts" },
     { label: "Active Customers", value: metrics.activeCustomers, description: "Accounts not currently suspended" },
@@ -16,16 +17,33 @@ export default async function DashboardPage() {
     { label: "Unassigned Machines", value: metrics.unassignedMachines, description: "Available for customer assignment" },
     { label: "Active Subscriptions", value: metrics.activeSubscriptions, description: "Entitlements currently in force" },
     { label: "Expiring in 7 days", value: metrics.expiringSubscriptions, description: "Active plans approaching expiry" },
+    { label: "New this month", value: metrics.newMonth, description: "Customers registered since the first of the month" },
+    { label: "Suspended customers", value: metrics.suspendedCustomers, description: "Accounts currently suspended" },
+    { label: "Inactive customers", value: metrics.inactiveCustomers, description: "Active accounts with no login in 30 days" },
+    { label: "Online machines", value: metrics.onlineMachines, description: "Verified, non-simulated heartbeat within 15 minutes" },
+    { label: "Offline machines", value: metrics.offlineMachines, description: "Last heartbeat older than 15 minutes" },
+    { label: "Needs attention", value: metrics.attentionMachines, description: "Suspended or flagged health status" },
+    { label: "Expired memberships", value: metrics.expiredSubscriptions, description: "Subscriptions marked expired" },
+    { label: "Processing jobs", value: metrics.usageTotal, description: "Usage ledger rows in this tenant" },
+    { label: "Successful jobs", value: metrics.usageSuccess, description: "Completed processing that consumed a credit once" },
+    { label: "Failed jobs", value: metrics.usageFailed, description: "Processing failures, not charged" },
+    { label: "Exports this month", value: metrics.exportMonth, description: "Successful exports since the first of the month" },
+    { label: "Collected (INR)", value: Math.round(metrics.collectedCents / 100), description: "Non-simulated paid amounts" },
+    { label: "Pending (INR)", value: Math.round(metrics.pendingCents / 100), description: "Non-simulated pending amounts" },
   ];
 
   return (
     <>
       <PageHeader
-        title="Operations"
-        description="Operational overview of customers, machines and subscriptions."
+        title="Command center"
+        description={
+          admin.tenant === "demo"
+            ? "Demonstration tenant. Figures are synthetic DEMO DATA and are excluded from production reports."
+            : "Live figures from this tenant. Online machines require a verified heartbeat in the last 15 minutes."
+        }
       />
 
-      <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {kpis.map((card) => (
           <KpiCard key={card.label} {...card} />
         ))}
@@ -94,7 +112,8 @@ export default async function DashboardPage() {
             </div>
           </dl>
           <p className="mt-4 text-xs leading-5 text-[var(--text-secondary)]">
-            Figures are database account states. {CONNECTIVITY_UNAVAILABLE}. Local ESP32 connectivity is handled by the Flutter app on the machine LAN.
+            Online status is shown only after a verified heartbeat. Simulated demo heartbeats are counted separately and are not treated as live machines.
+            Collected revenue excludes simulated payment rows.
           </p>
           <Link href="/machines" className="mt-3 inline-block text-sm font-semibold text-[var(--accent)]">
             Open machines

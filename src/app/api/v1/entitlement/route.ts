@@ -29,6 +29,9 @@ export async function GET(request: Request) {
             planName: subscription.planName,
             expiryDate: subscription.expiryDate,
             features: subscription.features,
+            exportAllowance: subscription.exportAllowance,
+            exportsUsed: subscription.exportsUsed,
+            creditsRemaining: subscription.creditsRemaining,
           }
         : null,
       assignedMachineIds: customer.machines.filter((m) => m.status === "ASSIGNED").map((m) => m.machineId),

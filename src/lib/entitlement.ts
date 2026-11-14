@@ -13,6 +13,9 @@ export type SubscriptionView = {
   planId: string;
   planName: string;
   features: PlanFeatures;
+  exportAllowance: number;
+  exportsUsed: number;
+  creditsRemaining: number;
 };
 
 export function effectiveSubscriptionStatus(stored: string, expiryDate: Date, now = new Date()): string {
@@ -40,11 +43,14 @@ export function toSubscriptionView(
     isEntitled: status === "ACTIVE",
     planId: subscription.plan.id,
     planName: subscription.plan.name,
-    features: parsePlanFeatures(subscription.plan.featuresJson),
+    features: parsePlanFeatures(subscription.snapshotFeaturesJson || subscription.plan.featuresJson),
+    exportAllowance: subscription.exportAllowance,
+    exportsUsed: subscription.exportsUsed,
+    creditsRemaining: subscription.creditsRemaining,
   };
 }
 
-export type MachineDisplayStatus = "Unassigned" | "Assigned" | "Active" | "Suspended" | "Offline" | "Unknown";
+export type MachineDisplayStatus = "Unassigned" | "Assigned" | "Active" | "Suspended" | "Offline" | "Unknown" | "Online";
 
 export function machineAccountLabel(status: string): MachineDisplayStatus {
   if (status === "SUSPENDED") return "Suspended";
@@ -58,10 +64,12 @@ export function deriveMachineDisplay(input: {
   customer: Pick<Customer, "status"> | null;
   subscription: SubscriptionView | null;
   lastSeenAt: Date | null;
+  telemetryVerified?: boolean;
+  telemetrySimulated?: boolean;
 }): {
   account: MachineDisplayStatus;
   entitlement: "Active" | "Inactive";
-  connectivity: "Unknown" | "Offline";
+  connectivity: "Unknown" | "Offline" | "Online" | "Simulated";
   connectivityNote: string;
   display: MachineDisplayStatus;
 } {
@@ -71,14 +79,23 @@ export function deriveMachineDisplay(input: {
     input.customer?.status === "ACTIVE" &&
     Boolean(input.subscription?.isEntitled);
 
-  let connectivity: "Unknown" | "Offline" = "Unknown";
+  let connectivity: "Unknown" | "Offline" | "Online" | "Simulated" = "Unknown";
   let connectivityNote = CONNECTIVITY_UNAVAILABLE;
   if (input.lastSeenAt) {
-    const staleMs = Date.now() - input.lastSeenAt.getTime();
-    connectivity = staleMs > 15 * 60 * 1000 ? "Offline" : "Unknown";
-    connectivityNote = input.lastSeenAt
-      ? `Last cloud heartbeat recorded ${input.lastSeenAt.toISOString()}. Real-time ESP32 connectivity is not reported to this dashboard.`
-      : CONNECTIVITY_UNAVAILABLE;
+    const fresh = Date.now() - input.lastSeenAt.getTime() <= 15 * 60 * 1000;
+    if (!fresh) {
+      connectivity = "Offline";
+      connectivityNote = `Last heartbeat ${input.lastSeenAt.toISOString()} is older than 15 minutes.`;
+    } else if (input.telemetryVerified && input.telemetrySimulated) {
+      connectivity = "Simulated";
+      connectivityNote = "Demonstration heartbeat only. This is not a live machine connection.";
+    } else if (input.telemetryVerified) {
+      connectivity = "Online";
+      connectivityNote = `Verified heartbeat at ${input.lastSeenAt.toISOString()}.`;
+    } else {
+      connectivity = "Unknown";
+      connectivityNote = `A timestamp exists (${input.lastSeenAt.toISOString()}) but it is not a verified heartbeat.`;
+    }
   }
 
   let display: MachineDisplayStatus = account;

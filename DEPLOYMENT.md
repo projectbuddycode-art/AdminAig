@@ -14,6 +14,8 @@ ADMIN_PASSWORD=<set-a-secure-password-minimum-8-characters>
 ADMIN_NAME=AIG Administrator
 ```
 
+Demo data is separate. Set `DEMO_MODE=true` and `AIG_RUNTIME=demo` (never `production`), then provide `DEMO_ADMIN_EMAIL` and `DEMO_ADMIN_PASSWORD` outside source control and run `npm run demo:create`. The script does not print the password. Demo administrators only see the `demo` tenant.
+
 ## Generating Secrets
 
 For `AUTH_SECRET` and `CUSTOMER_JWT_SECRET`, generate random 32-character hexadecimal strings:

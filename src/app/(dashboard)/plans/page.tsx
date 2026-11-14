@@ -5,11 +5,13 @@ import { ButtonLink, EmptyState, PageHeader, StatusBadge, TableWrap } from "@/co
 import { setPlanStatusAction } from "@/server/actions";
 import { asFormAction } from "@/lib/form-action";
 import { ConfirmSubmit } from "@/components/forms";
+import { currentAdmin } from "@/lib/current-admin";
 
 export const dynamic = "force-dynamic";
 
 export default async function PlansPage() {
-  const plans = await listPlans(prisma);
+  const admin = await currentAdmin();
+  const plans = await listPlans(prisma, admin.tenant);
   return (
     <>
       <PageHeader

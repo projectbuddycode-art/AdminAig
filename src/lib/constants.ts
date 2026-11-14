@@ -1,4 +1,12 @@
-export const ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"] as const;
+export const ADMIN_ROLES = [
+  "SUPER_ADMIN",
+  "ADMIN",
+  "SUPPORT",
+  "FINANCE",
+  "MACHINE_OPS",
+  "AUDITOR",
+  "DEMO_ADMIN",
+] as const;
 export const ADMIN_STATUSES = ["ACTIVE", "SUSPENDED"] as const;
 export const CUSTOMER_STATUSES = ["ACTIVE", "SUSPENDED"] as const;
 export const PLAN_STATUSES = ["ACTIVE", "INACTIVE"] as const;
@@ -29,7 +37,18 @@ export const AUDIT_EVENTS = [
   "PLAN_CHANGED",
   "SUBSCRIPTION_CREATED",
   "SUBSCRIPTION_CHANGED",
+  "SUBSCRIPTION_EXTENDED",
+  "CREDITS_GRANTED",
+  "USAGE_RECORDED",
+  "NOTIFICATION_QUEUED",
+  "PAYMENT_RECORDED",
+  "MAINTENANCE_RECORDED",
   "ADMIN_UPDATED",
+  "ADMIN_LOGIN",
+  "ADMIN_LOGIN_FAILED",
+  "CUSTOMER_LOGIN",
+  "CUSTOMER_LOGIN_FAILED",
+  "MACHINE_HEARTBEAT",
 ] as const;
 
 export type AuditEvent = (typeof AUDIT_EVENTS)[number];
