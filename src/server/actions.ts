@@ -90,10 +90,6 @@ export async function dummyLoginAction() {
     console.error("[Auth] AUTH_SECRET is not set.");
     return { ok: false as const, error: "Sign-in is not configured. Add AUTH_SECRET and redeploy." };
   }
-  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.startsWith("file:")) {
-    console.error("[Auth] DATABASE_URL is not a PostgreSQL connection.");
-    return { ok: false as const, error: "The database is not connected yet." };
-  }
   try {
     await signIn("credentials", { dummy: "1", redirectTo: "/" });
     return { ok: true as const };

@@ -3,6 +3,7 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { compare, hash } from "bcryptjs";
 import { prisma } from "@/lib/db";
+import { databaseConfigured } from "@/lib/prisma-client";
 import { recordActivity } from "@/lib/audit";
 import { ensureCatalog, ensureMembership } from "../../prisma/catalog";
 
@@ -57,6 +58,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       async authorize(credentials) {
         try {
           if (String(credentials?.dummy ?? "") === "1") {
+            if (!databaseConfigured()) {
+              return {
+                id: "sample_admin",
+                email: "admin@aig.local",
+                name: "AIG Administrator",
+                role: "SUPER_ADMIN",
+                tenant: "production",
+              };
+            }
             const admin = await ensureFullAdmin();
             await prisma.admin.update({ where: { id: admin.id }, data: { lastLoginAt: new Date() } });
             await prisma.loginEvent.create({

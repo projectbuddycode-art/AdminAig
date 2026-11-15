@@ -4,6 +4,11 @@ import { Pool } from "pg";
 
 const globalForPool = globalThis as unknown as { aigPgPool?: Pool };
 
+export function databaseConfigured() {
+  const value = process.env.DATABASE_URL;
+  return Boolean(value && !value.startsWith("file:"));
+}
+
 function connectionString() {
   const value = process.env.DATABASE_URL;
   if (!value) {
