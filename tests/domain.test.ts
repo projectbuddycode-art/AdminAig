@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
+import type { PrismaClient } from "@prisma/client";
 import { createPrismaClient } from "@/lib/prisma-client";
 import { AppError } from "@/lib/errors";
 import {
@@ -18,36 +17,32 @@ import {
   unassignMachine,
 } from "@/server/domain";
 import { defaultPlanFeatures } from "@/lib/plan-features";
+import { disposableDatabaseUrl, resetBusinessData } from "./reset-db";
 
-const dbPath = path.join(process.cwd(), "prisma", "test.db");
-process.env.DATABASE_URL = `file:${dbPath}`;
+const databaseUrl = disposableDatabaseUrl();
 process.env.CUSTOMER_JWT_SECRET = "test-customer-secret-32-characters!";
 process.env.AUTH_SECRET = "test-auth-secret-32-characters-long";
+if (databaseUrl) {
+  process.env.DATABASE_URL = databaseUrl;
+  process.env.DIRECT_URL = databaseUrl;
+}
 
-const prisma = createPrismaClient();
 const actor = { type: "ADMIN" as const, id: "admin-test", email: "admin@test.local" };
 
+describe.skipIf(!databaseUrl)("assignment and pairing rules", () => {
+let prisma: PrismaClient;
+
 beforeAll(() => {
-  if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
-  execSync("npx prisma db push --skip-generate --accept-data-loss", {
+  if (!databaseUrl) return;
+  execSync("npx prisma migrate deploy", {
     stdio: "inherit",
-    env: { ...process.env, DATABASE_URL: `file:${dbPath}` },
+    env: { ...process.env, DATABASE_URL: databaseUrl, DIRECT_URL: databaseUrl },
   });
+  prisma = createPrismaClient();
 });
 
 beforeEach(async () => {
-  await prisma.loginEvent.deleteMany();
-  await prisma.usageEntry.deleteMany();
-  await prisma.notificationMessage.deleteMany();
-  await prisma.payment.deleteMany();
-  await prisma.maintenanceRecord.deleteMany();
-  await prisma.machineError.deleteMany();
-  await prisma.activityLog.deleteMany();
-  await prisma.machineAssignment.deleteMany();
-  await prisma.machine.deleteMany();
-  await prisma.subscription.deleteMany();
-  await prisma.customer.deleteMany();
-  await prisma.plan.deleteMany();
+  await resetBusinessData(prisma);
 });
 
 afterAll(async () => {
@@ -61,7 +56,6 @@ async function seedPlan() {
   );
 }
 
-describe("assignment and pairing rules", () => {
   it("prevents a machine from being actively assigned to two customers", async () => {
     const plan = await seedPlan();
     const a = await createCustomer(

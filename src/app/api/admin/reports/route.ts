@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { idIn, idsBetween } from "@/server/sqlite-dates";
+import { idIn, idsBetween } from "@/server/dated-rows";
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/rbac";
@@ -35,10 +35,10 @@ export async function GET(request: Request) {
   let rows: string[][] = [["empty"]];
 
   if (kind === "customers") {
-    const data = await prisma.customer.findMany({ where: { tenant, ...(await dated("Customer")) }, orderBy: { createdAt: "desc" } });
+    const data = await prisma.customer.findMany({ where: { tenant, deletedAt: null, ...(await dated("Customer")) }, orderBy: { createdAt: "desc" } });
     rows = [["id", "name", "email", "phone", "status", "createdAt", "lastLoginAt", "tenant"], ...data.map((row) => [row.id, row.name, row.email, row.phone, row.status, row.createdAt.toISOString(), row.lastLoginAt?.toISOString() ?? "", row.tenant])];
   } else if (kind === "machines") {
-    const data = await prisma.machine.findMany({ where: { tenant }, include: { customer: true } });
+    const data = await prisma.machine.findMany({ where: { tenant, deletedAt: null }, include: { customer: true } });
     rows = [["machineId", "status", "customer", "firmware", "connectivity"], ...data.map((row) => [row.machineId, row.status, row.customer?.email ?? "", row.firmwareVersion ?? "", row.telemetryVerified && !row.telemetrySimulated ? "verified-heartbeat" : "not-live"])];
   } else if (kind === "subscriptions" || kind === "renewals" || kind === "expired") {
     const data = await prisma.subscription.findMany({

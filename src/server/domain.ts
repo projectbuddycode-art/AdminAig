@@ -6,6 +6,7 @@ import { recordActivity, type AuditActor } from "@/lib/audit";
 import { generateMachineId, isValidMachineIdFormat, normalizeMachineId } from "@/lib/machine-id";
 import { isSubscriptionEntitled, effectiveSubscriptionStatus } from "@/lib/entitlement";
 import { parsePlanFeatures, serializePlanFeatures, type PlanFeatures } from "@/lib/plan-features";
+import { decimalFromCents } from "@/lib/money";
 import { actorTenant, assertPermission, assertSameTenant } from "@/lib/rbac";
 
 export type Domain = {
@@ -101,6 +102,7 @@ export async function createPlan(
       durationDays: input.durationDays,
       featuresJson: serializePlanFeatures(input.features),
       priceCents: input.priceCents ?? 0,
+      priceAmount: decimalFromCents(input.priceCents ?? 0),
       status: "ACTIVE",
       tenant: actorTenant(domain.actor),
     },
@@ -203,6 +205,19 @@ export async function createCustomer(
         expiryDate: addDays(now, plan.durationDays),
         tenant,
         ...snap,
+      },
+    });
+    await tx.customerProfile.create({ data: { customerId: created.id } });
+    await tx.subscriptionHistory.create({
+      data: {
+        subscriptionId: subscription.id,
+        planId: plan.id,
+        tenant,
+        status: "ACTIVE",
+        snapshotFeaturesJson: snap.snapshotFeaturesJson,
+        priceAmount: decimalFromCents(plan.priceCents),
+        priceCents: plan.priceCents,
+        reason: "Subscription opened",
       },
     });
 
@@ -345,8 +360,22 @@ export async function changeCustomerPlan(domain: Domain, customerId: string, pla
   const snap = subscriptionSnapshot(plan, now);
   const previous = await getCurrentSubscription(domain.db, customerId);
   const created = await domain.db.$transaction(async (tx) => {
+    if (previous) {
+      await tx.subscriptionHistory.create({
+        data: {
+          subscriptionId: previous.id,
+          planId: previous.planId,
+          tenant: customer.tenant,
+          status: previous.status,
+          snapshotFeaturesJson: previous.snapshotFeaturesJson,
+          priceAmount: decimalFromCents(previous.plan.priceCents),
+          priceCents: previous.plan.priceCents,
+          reason,
+        },
+      });
+    }
     await tx.subscription.updateMany({
-      where: { customerId, status: { in: ["ACTIVE", "SUSPENDED"] } },
+      where: { customerId, status: { in: ["ACTIVE", "SUSPENDED", "TRIAL"] } },
       data: { status: "CANCELLED" },
     });
     const subscription = await tx.subscription.create({
@@ -358,6 +387,18 @@ export async function changeCustomerPlan(domain: Domain, customerId: string, pla
         expiryDate: addDays(now, plan.durationDays),
         tenant: customer.tenant,
         ...snap,
+      },
+    });
+    await tx.subscriptionHistory.create({
+      data: {
+        subscriptionId: subscription.id,
+        planId: plan.id,
+        tenant: customer.tenant,
+        status: "ACTIVE",
+        snapshotFeaturesJson: snap.snapshotFeaturesJson,
+        priceAmount: decimalFromCents(plan.priceCents),
+        priceCents: plan.priceCents,
+        reason,
       },
     });
     await recordActivity(tx, {
@@ -389,22 +430,38 @@ export async function createMachine(
 ) {
   assertPermission(domain.actor, "machines.manage");
   const machineId = await uniqueMachineId(domain.db, input.machineId);
-  const machine = await domain.db.machine.create({
-    data: {
-      machineId,
-      status: "UNASSIGNED",
-      firmwareVersion: input.firmwareVersion || null,
-      model: input.model || "DiamondCam",
-      serialNumber: input.serialNumber || null,
-      tenant: actorTenant(domain.actor),
-    },
-  });
-  await recordActivity(domain.db, {
-    event: "MACHINE_CREATED",
-    actor: domain.actor,
-    targetType: "MACHINE",
-    targetId: machine.id,
-    metadata: { machineId },
+  const tenant = actorTenant(domain.actor);
+  const machine = await domain.db.$transaction(async (tx) => {
+    const created = await tx.machine.create({
+      data: {
+        machineId,
+        status: "UNASSIGNED",
+        firmwareVersion: input.firmwareVersion || null,
+        model: input.model || "DiamondCam",
+        serialNumber: input.serialNumber || null,
+        tenant,
+      },
+    });
+    if (created.firmwareVersion) {
+      await tx.machineFirmwareHistory.create({
+        data: { machineId: created.id, version: created.firmwareVersion, source: "ADMIN" },
+      });
+    }
+    await tx.machineConfigRevision.create({
+      data: {
+        machineId: created.id,
+        motorConfig: created.motorConfig,
+        lightingConfig: created.lightingConfig,
+      },
+    });
+    await recordActivity(tx, {
+      event: "MACHINE_CREATED",
+      actor: domain.actor,
+      targetType: "MACHINE",
+      targetId: created.id,
+      metadata: { machineId },
+    });
+    return created;
   });
   return machine;
 }
@@ -452,6 +509,7 @@ export async function assignMachine(domain: Domain, machineDbId: string, custome
       data: {
         machineId: machine.id,
         customerId,
+        tenant: machine.tenant,
         status: "ACTIVE",
         assignedAt: nowOf(domain),
       },
@@ -778,11 +836,24 @@ export async function recordUsage(
         },
       });
     }
+    const job = await tx.processingJob.create({
+      data: {
+        tenant: customer.tenant,
+        customerId: customer.id,
+        machineId: input.machineDbId,
+        jobKey: input.idempotencyKey,
+        status: input.status,
+        startedAt: now,
+        completedAt: now,
+        failureReason: input.failureReason,
+      },
+    });
     const created = await tx.usageEntry.create({
       data: {
         tenant: customer.tenant,
         customerId: customer.id,
         machineId: input.machineDbId,
+        processingJobId: job.id,
         jobId: input.jobId,
         idempotencyKey: input.idempotencyKey,
         sourceRecording: input.sourceRecording,
@@ -797,6 +868,19 @@ export async function recordUsage(
         exportDate: charge ? now : null,
         outputRef: input.outputRef,
         failureReason: input.failureReason,
+      },
+    });
+    await tx.exportRecord.create({
+      data: {
+        tenant: customer.tenant,
+        customerId: customer.id,
+        processingJobId: job.id,
+        usageEntryId: created.id,
+        idempotencyKey: input.idempotencyKey,
+        status: input.status,
+        creditsConsumed: charge,
+        outputRef: input.outputRef,
+        simulated: customer.tenant === "demo",
       },
     });
     await recordActivity(tx, {
@@ -856,6 +940,14 @@ export async function queueNotification(
       sentAt: status === "SIMULATED" || status === "RECORDED" ? nowOf(domain) : null,
     },
   });
+  await domain.db.notificationDelivery.create({
+    data: {
+      notificationId: row.id,
+      attempt: 1,
+      status,
+      error: status === "NOT_CONFIGURED" ? "Provider credentials are not configured. Nothing was sent." : null,
+    },
+  });
   await recordActivity(domain.db, {
     event: "NOTIFICATION_QUEUED",
     actor: domain.actor,
@@ -884,8 +976,8 @@ export async function recordManualPayment(
   const customer = await domain.db.customer.findUnique({ where: { id: input.customerId } });
   if (!customer) throw new AppError("Customer not found.", "CUSTOMER_NOT_FOUND", 404);
   assertSameTenant(domain.actor, customer.tenant);
-  if (domain.actor.role === "DEMO_ADMIN") {
-    throw new AppError("Demo administrators cannot record payments.", "FORBIDDEN", 403);
+  if (customer.tenant === "demo" || domain.actor.tenant === "demo" || domain.actor.role === "DEMO_ADMIN") {
+    throw new AppError("Demo tenants cannot record payments.", "FORBIDDEN", 403);
   }
   const subscription = await getCurrentSubscription(domain.db, customer.id);
   const payment = await domain.db.payment.create({
@@ -894,6 +986,7 @@ export async function recordManualPayment(
       customerId: customer.id,
       subscriptionId: subscription?.id,
       amountCents: input.amountCents,
+      amount: decimalFromCents(input.amountCents),
       currency: input.currency ?? "INR",
       status: input.status,
       method: input.method,
@@ -920,7 +1013,7 @@ export async function recordMaintenance(domain: Domain, machineDbId: string, not
   if (!machine) throw new AppError("Machine not found.", "MACHINE_NOT_FOUND", 404);
   assertSameTenant(domain.actor, machine.tenant);
   const row = await domain.db.maintenanceRecord.create({
-    data: { machineId: machine.id, note, performedBy: domain.actor.email ?? null },
+    data: { machineId: machine.id, tenant: machine.tenant, note, performedBy: domain.actor.email ?? null },
   });
   await recordActivity(domain.db, {
     event: "MAINTENANCE_RECORDED",
@@ -934,6 +1027,13 @@ export async function recordMaintenance(domain: Domain, machineDbId: string, not
 }
 
 export async function recordVerifiedHeartbeat(db: PrismaClient, machineDbId: string, at = new Date()) {
+  const machine = await db.machine.findUnique({ where: { id: machineDbId }, select: { tenant: true } });
+  if (machine?.tenant === "demo") {
+    return db.machine.update({
+      where: { id: machineDbId },
+      data: { lastSeenAt: at, telemetryVerified: false, telemetrySimulated: true },
+    });
+  }
   return db.machine.update({
     where: { id: machineDbId },
     data: { lastSeenAt: at, telemetryVerified: true, telemetrySimulated: false },

@@ -10,7 +10,7 @@ export const ADMIN_ROLES = [
 export const ADMIN_STATUSES = ["ACTIVE", "SUSPENDED"] as const;
 export const CUSTOMER_STATUSES = ["ACTIVE", "SUSPENDED"] as const;
 export const PLAN_STATUSES = ["ACTIVE", "INACTIVE"] as const;
-export const SUBSCRIPTION_STATUSES = ["ACTIVE", "EXPIRED", "SUSPENDED", "CANCELLED"] as const;
+export const SUBSCRIPTION_STATUSES = ["ACTIVE", "EXPIRED", "SUSPENDED", "CANCELLED", "TRIAL"] as const;
 export const MACHINE_ACCOUNT_STATUSES = ["UNASSIGNED", "ASSIGNED", "SUSPENDED"] as const;
 export const ASSIGNMENT_STATUSES = ["ACTIVE", "UNASSIGNED"] as const;
 

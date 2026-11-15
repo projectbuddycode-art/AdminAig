@@ -6,6 +6,6 @@ export async function currentAdmin() {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
   const admin = await prisma.admin.findUnique({ where: { id: session.user.id } });
-  if (!admin || admin.status !== "ACTIVE") redirect("/login");
+  if (!admin || admin.status !== "ACTIVE" || admin.deletedAt) redirect("/login");
   return admin;
 }

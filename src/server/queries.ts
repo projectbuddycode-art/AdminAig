@@ -48,31 +48,32 @@ export async function getDashboardMetrics(db: PrismaClient, tenant = "production
     exportMonth,
     payments,
   ] = await Promise.all([
-    db.customer.count({ where: scope }),
-    db.customer.count({ where: { ...scope, status: "ACTIVE" } }),
-    db.customer.count({ where: { ...scope, status: "SUSPENDED" } }),
-    db.customer.count({ where: { ...scope, createdAt: { gte: startOfDay } } }),
-    db.customer.count({ where: { ...scope, createdAt: { gte: weekAgo } } }),
-    db.customer.count({ where: { ...scope, createdAt: { gte: monthAgo } } }),
-    db.customer.count({ where: { ...scope, lastLoginAt: { gte: weekAgo } } }),
+    db.customer.count({ where: { ...scope, deletedAt: null } }),
+    db.customer.count({ where: { ...scope, deletedAt: null, status: "ACTIVE" } }),
+    db.customer.count({ where: { ...scope, deletedAt: null, status: "SUSPENDED" } }),
+    db.customer.count({ where: { ...scope, deletedAt: null, createdAt: { gte: startOfDay } } }),
+    db.customer.count({ where: { ...scope, deletedAt: null, createdAt: { gte: weekAgo } } }),
+    db.customer.count({ where: { ...scope, deletedAt: null, createdAt: { gte: monthAgo } } }),
+    db.customer.count({ where: { ...scope, deletedAt: null, lastLoginAt: { gte: weekAgo } } }),
     db.customer.count({
       where: {
         ...scope,
+        deletedAt: null,
         status: "ACTIVE",
         OR: [{ lastLoginAt: null, createdAt: { lt: inactiveBefore } }, { lastLoginAt: { lt: inactiveBefore } }],
       },
     }),
-    db.machine.count({ where: scope }),
-    db.machine.count({ where: { ...scope, status: "ASSIGNED" } }),
-    db.machine.count({ where: { ...scope, status: "UNASSIGNED" } }),
-    db.machine.count({ where: { ...scope, status: "SUSPENDED" } }),
+    db.machine.count({ where: { ...scope, deletedAt: null } }),
+    db.machine.count({ where: { ...scope, deletedAt: null, status: "ASSIGNED" } }),
+    db.machine.count({ where: { ...scope, deletedAt: null, status: "UNASSIGNED" } }),
+    db.machine.count({ where: { ...scope, deletedAt: null, status: "SUSPENDED" } }),
     db.machine.count({
-      where: { ...scope, telemetryVerified: true, telemetrySimulated: false, lastSeenAt: { gte: freshSince } },
+      where: { ...scope, deletedAt: null, telemetryVerified: true, telemetrySimulated: false, lastSeenAt: { gte: freshSince } },
     }),
     db.machine.count({
-      where: { ...scope, lastSeenAt: { lt: freshSince } },
+      where: { ...scope, deletedAt: null, lastSeenAt: { lt: freshSince } },
     }),
-    db.machine.count({ where: { ...scope, OR: [{ status: "SUSPENDED" }, { healthStatus: "ATTENTION" }] } }),
+    db.machine.count({ where: { ...scope, deletedAt: null, OR: [{ status: "SUSPENDED" }, { healthStatus: "ATTENTION" }] } }),
     db.subscription.count({ where: { ...scope, status: "ACTIVE", expiryDate: { gt: now } } }),
     db.subscription.count({
       where: { ...scope, status: "ACTIVE", expiryDate: { gt: now, lte: inSevenDays } },
@@ -133,7 +134,7 @@ export async function listCustomers(
   input: { q: string; status: string; page: number; pageSize: number; planId?: string; tenant?: string },
 ) {
   await expireStaleSubscriptions(db);
-  const where: Prisma.CustomerWhereInput = {};
+  const where: Prisma.CustomerWhereInput = { deletedAt: null };
   if (input.tenant) where.tenant = input.tenant;
   if (input.status) where.status = input.status;
   if (input.planId) {
@@ -141,9 +142,9 @@ export async function listCustomers(
   }
   if (input.q) {
     where.OR = [
-      { name: { contains: input.q } },
-      { email: { contains: input.q } },
-      { phone: { contains: input.q } },
+      { name: { contains: input.q, mode: "insensitive" } },
+      { email: { contains: input.q, mode: "insensitive" } },
+      { phone: { contains: input.q, mode: "insensitive" } },
     ];
   }
   const [total, rows] = await Promise.all([
@@ -186,7 +187,7 @@ export async function getCustomerDetail(db: PrismaClient, id: string, tenant?: s
       assignments: { include: { machine: true }, orderBy: { assignedAt: "desc" } },
     },
   });
-  if (!customer) return null;
+  if (!customer || customer.deletedAt) return null;
   if (tenant && customer.tenant !== tenant) return null;
 
   const current = toSubscriptionView(customer.subscriptions[0] ?? null);
@@ -236,10 +237,13 @@ export async function listMachines(
   input: { q: string; status: string; page: number; pageSize: number; tenant?: string },
 ) {
   await expireStaleSubscriptions(db);
-  const where: Prisma.MachineWhereInput = {};
+  const where: Prisma.MachineWhereInput = { deletedAt: null };
   if (input.tenant) where.tenant = input.tenant;
   if (input.q) {
-    where.OR = [{ machineId: { contains: input.q.toUpperCase() } }, { customer: { name: { contains: input.q } } }];
+    where.OR = [
+      { machineId: { contains: input.q.toUpperCase(), mode: "insensitive" } },
+      { customer: { name: { contains: input.q, mode: "insensitive" } } },
+    ];
   }
   if (input.status === "UNASSIGNED" || input.status === "ASSIGNED" || input.status === "SUSPENDED") {
     where.status = input.status;
@@ -289,7 +293,7 @@ export async function getMachineDetail(db: PrismaClient, id: string, tenant?: st
       assignments: { include: { customer: true }, orderBy: { assignedAt: "desc" } },
     },
   });
-  if (!machine) return null;
+  if (!machine || machine.deletedAt) return null;
   if (tenant && machine.tenant !== tenant) return null;
   const subscription = toSubscriptionView(machine.customer?.subscriptions[0] ?? null);
   const [usage, maintenance, errors] = await Promise.all([
@@ -323,7 +327,7 @@ export async function getMachineDetail(db: PrismaClient, id: string, tenant?: st
 
 export async function listPlans(db: PrismaClient, tenant?: string) {
   const plans = await db.plan.findMany({
-    where: tenant ? { tenant } : undefined,
+    where: { deletedAt: null, ...(tenant ? { tenant } : {}) },
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { subscriptions: true } } },
   });
@@ -344,7 +348,7 @@ export async function getPlanDetail(db: PrismaClient, id: string, tenant?: strin
       },
     },
   });
-  if (!plan) return null;
+  if (!plan || plan.deletedAt) return null;
   if (tenant && plan.tenant !== tenant) return null;
   return {
     ...plan,
@@ -365,7 +369,11 @@ export async function listSubscriptions(
   if (input.tenant) where.tenant = input.tenant;
   if (input.status) where.status = input.status;
   if (input.q) {
-    where.OR = [{ customer: { name: { contains: input.q } } }, { customer: { email: { contains: input.q } } }, { plan: { name: { contains: input.q } } }];
+    where.OR = [
+      { customer: { name: { contains: input.q, mode: "insensitive" } } },
+      { customer: { email: { contains: input.q, mode: "insensitive" } } },
+      { plan: { name: { contains: input.q, mode: "insensitive" } } },
+    ];
   }
   const [total, rows] = await Promise.all([
     db.subscription.count({ where }),
@@ -406,7 +414,7 @@ export async function listActivity(
   if (input.tenant) where.tenant = input.tenant;
   if (input.targetType) where.targetType = input.targetType;
   if (input.event) where.event = input.event;
-  if (input.actor) where.actorEmail = { contains: input.actor };
+  if (input.actor) where.actorEmail = { contains: input.actor, mode: "insensitive" };
   if (input.from || input.to) {
     where.createdAt = {};
     if (input.from) where.createdAt.gte = new Date(input.from);
@@ -418,9 +426,9 @@ export async function listActivity(
   }
   if (input.q) {
     where.OR = [
-      { event: { contains: input.q.toUpperCase() } },
-      { actorEmail: { contains: input.q } },
-      { targetType: { contains: input.q.toUpperCase() } },
+      { event: { contains: input.q.toUpperCase(), mode: "insensitive" } },
+      { actorEmail: { contains: input.q, mode: "insensitive" } },
+      { targetType: { contains: input.q.toUpperCase(), mode: "insensitive" } },
     ];
   }
   const [total, rows] = await Promise.all([
@@ -437,13 +445,13 @@ export async function listActivity(
 
 export async function listAssignableMachines(db: PrismaClient, tenant?: string) {
   return db.machine.findMany({
-    where: { status: "UNASSIGNED", ...(tenant ? { tenant } : {}) },
+    where: { status: "UNASSIGNED", deletedAt: null, ...(tenant ? { tenant } : {}) },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export async function listActivePlans(db: PrismaClient, tenant?: string) {
-  return db.plan.findMany({ where: { status: "ACTIVE", ...(tenant ? { tenant } : {}) }, orderBy: { name: "asc" } });
+  return db.plan.findMany({ where: { status: "ACTIVE", deletedAt: null, ...(tenant ? { tenant } : {}) }, orderBy: { name: "asc" } });
 }
 
 export { getCurrentSubscription };

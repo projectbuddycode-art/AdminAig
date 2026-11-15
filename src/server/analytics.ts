@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { format } from "date-fns";
 import type { ReportRange } from "@/lib/report-range";
-import { idIn, idsBetween, idsOnOrBefore } from "@/server/sqlite-dates";
+import { idIn, idsBetween, idsOnOrBefore } from "@/server/dated-rows";
 
 export type ReportSection = "overview" | "customers" | "machines" | "usage" | "subscriptions" | "finance" | "activity";
 
@@ -45,10 +45,16 @@ function customerWhere(filters: ReportFilters, ids: string[]): Prisma.CustomerWh
   const pool = filters.customerId ? ids.filter((id) => id === filters.customerId) : ids;
   const where: Prisma.CustomerWhereInput = {
     tenant: filters.tenant,
+    deletedAt: null,
     id: idIn(pool),
   };
   if (filters.status) where.status = filters.status;
-  if (filters.q) where.OR = [{ name: { contains: filters.q } }, { email: { contains: filters.q } }];
+  if (filters.q) {
+    where.OR = [
+      { name: { contains: filters.q, mode: "insensitive" } },
+      { email: { contains: filters.q, mode: "insensitive" } },
+    ];
+  }
   if (filters.planId) where.subscriptions = { some: { planId: filters.planId } };
   if (filters.machineId) where.machines = { some: { id: filters.machineId } };
   return where;
@@ -276,9 +282,17 @@ async function machineMetrics(db: PrismaClient, filters: ReportFilters, from: Da
   const freshSince = new Date(now.getTime() - FRESH_MS);
   const where: Prisma.MachineWhereInput = {
     tenant: filters.tenant,
+    deletedAt: null,
     ...(filters.machineId ? { id: filters.machineId } : {}),
     ...(filters.customerId ? { customerId: filters.customerId } : {}),
-    ...(filters.q ? { OR: [{ machineId: { contains: filters.q.toUpperCase() } }, { serialNumber: { contains: filters.q } }] } : {}),
+    ...(filters.q
+      ? {
+          OR: [
+            { machineId: { contains: filters.q.toUpperCase(), mode: "insensitive" } },
+            { serialNumber: { contains: filters.q, mode: "insensitive" } },
+          ],
+        }
+      : {}),
   };
   const machines = await db.machine.findMany({
     where,
@@ -287,8 +301,8 @@ async function machineMetrics(db: PrismaClient, filters: ReportFilters, from: Da
   });
   const machineIds = machines.map((machine) => machine.id);
   const usageIds = await idsBetween(db, "UsageEntry", from, to, filters.tenant);
-  const errorIds = await idsBetween(db, "MachineError", from, to);
-  const maintenanceIds = await idsBetween(db, "MaintenanceRecord", from, to);
+  const errorIds = await idsBetween(db, "MachineError", from, to, filters.tenant);
+  const maintenanceIds = await idsBetween(db, "MaintenanceRecord", from, to, filters.tenant);
   const usage = machineIds.length
     ? await db.usageEntry.groupBy({
         by: ["machineId", "status"],
@@ -374,7 +388,16 @@ async function subscriptionMetrics(db: PrismaClient, filters: ReportFilters, fro
     ...(filters.customerId ? { customerId: filters.customerId } : {}),
     ...(filters.planId ? { planId: filters.planId } : {}),
     ...(filters.status ? { status: filters.status } : {}),
-    ...(filters.q ? { customer: { OR: [{ name: { contains: filters.q } }, { email: { contains: filters.q } }] } } : {}),
+    ...(filters.q
+      ? {
+          customer: {
+            OR: [
+              { name: { contains: filters.q, mode: "insensitive" } },
+              { email: { contains: filters.q, mode: "insensitive" } },
+            ],
+          },
+        }
+      : {}),
   };
   const rows = await db.subscription.findMany({
     where,
@@ -440,7 +463,14 @@ async function financeMetrics(db: PrismaClient, filters: ReportFilters, from: Da
     id: idIn(paymentIds),
     ...(filters.customerId ? { customerId: filters.customerId } : {}),
     ...(filters.status ? { status: filters.status } : {}),
-    ...(filters.q ? { OR: [{ reference: { contains: filters.q } }, { customer: { name: { contains: filters.q } } }] } : {}),
+    ...(filters.q
+      ? {
+          OR: [
+            { reference: { contains: filters.q, mode: "insensitive" } },
+            { customer: { name: { contains: filters.q, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
   };
   const payments = await db.payment.findMany({
     where,
@@ -512,7 +542,7 @@ async function activityMetrics(db: PrismaClient, filters: ReportFilters, from: D
         tenant: filters.tenant,
         id: idIn(auditIds),
         ...(filters.action ? { event: filters.action } : {}),
-        ...(filters.adminEmail ? { actorEmail: { contains: filters.adminEmail } } : {}),
+        ...(filters.adminEmail ? { actorEmail: { contains: filters.adminEmail, mode: "insensitive" } } : {}),
         ...(filters.customerId ? { customerId: filters.customerId } : {}),
       },
     }),
@@ -521,7 +551,7 @@ async function activityMetrics(db: PrismaClient, filters: ReportFilters, from: D
         tenant: filters.tenant,
         id: idIn(auditIds),
         ...(filters.action ? { event: filters.action } : {}),
-        ...(filters.adminEmail ? { actorEmail: { contains: filters.adminEmail } } : {}),
+        ...(filters.adminEmail ? { actorEmail: { contains: filters.adminEmail, mode: "insensitive" } } : {}),
         ...(filters.customerId ? { customerId: filters.customerId } : {}),
       },
       orderBy: { createdAt: "desc" },

@@ -45,7 +45,7 @@ async function actor(): Promise<AuditActor> {
     throw new Error("Unauthorized");
   }
   const admin = await prisma.admin.findUnique({ where: { id: session.user.id } });
-  if (!admin || admin.status !== "ACTIVE") {
+  if (!admin || admin.status !== "ACTIVE" || admin.deletedAt) {
     throw new Error("Unauthorized");
   }
   return { type: "ADMIN", id: admin.id, email: admin.email, role: admin.role, tenant: admin.tenant };
@@ -397,7 +397,7 @@ export async function updateSettingsAction(formData: FormData) {
     await prisma.admin.update({ where: { id: admin.id }, data });
     await recordActivity(prisma, {
       event: "ADMIN_UPDATED",
-      actor: { type: "ADMIN", id: admin.id, email: admin.email },
+      actor: { type: "ADMIN", id: admin.id, email: admin.email, role: admin.role, tenant: admin.tenant },
       targetType: "ADMIN",
       targetId: admin.id,
     });

@@ -2,23 +2,26 @@
 
 The Vercel build command is `prisma generate && next build` (Prisma 6.16.3). `prisma migrate deploy` does not accept `--skip-generate`. Apply migrations separately with `npx prisma migrate deploy` when `DATABASE_URL` points at the target database. Do not run `prisma db push` against production.
 
-This schema uses SQLite. A `file:` database is not durable on Vercel serverless. Production data needs a hosted database and a matching migration history before `migrate deploy` is added to the release process.
+The application uses PostgreSQL. A `file:` SQLite URL is not a Vercel database. Set `DATABASE_URL` to the Supabase pooled connection and `DIRECT_URL` to the direct connection, then run `npx prisma migrate deploy` from a workstation.
 
 When deploying to Vercel, ensure the following environment variables are set in your Vercel project settings:
 
 ## Required Environment Variables
 
 ```
-DATABASE_URL=file:./prod.db
+DATABASE_URL=<supabase pooled postgres url>
+DIRECT_URL=<supabase direct postgres url>
 AUTH_SECRET=<generate-a-secure-32-character-random-string>
 AUTH_URL=https://<your-domain>.vercel.app
 CUSTOMER_JWT_SECRET=<generate-a-separate-32-character-random-string>
-ADMIN_EMAIL=admin@aig.local
-ADMIN_PASSWORD=<set-a-secure-password-minimum-8-characters>
-ADMIN_NAME=AIG Administrator
+DEMO_TENANT_ENABLED=true
+DEMO_ADMIN_EMAIL=projectbuddy.code@gmail.com
+DEMO_ADMIN_PASSWORD=<set-only-in-vercel-or-the-shell-never-in-git>
 ```
 
-Demo data is separate. Set `DEMO_MODE=true` and `AIG_RUNTIME=demo` (never `production`), then provide `DEMO_ADMIN_EMAIL` and `DEMO_ADMIN_PASSWORD` outside source control and run `npm run demo:create`. The script does not print the password. Demo administrators only see the `demo` tenant.
+`ADMIN_PASSWORD` and `DEMO_ADMIN_PASSWORD` are for the one-time workstation commands. Request handlers do not read them.
+
+The demo administrator is created once, from a workstation, against the same database Vercel uses. Set `DEMO_TENANT_ENABLED=true`, `DEMO_ADMIN_EMAIL=projectbuddy.code@gmail.com`, and `DEMO_ADMIN_PASSWORD` in that shell. Then run `npm run demo:create`. The build does not create the account, and a second run does not change the password. See `docs/demo-login.md`.
 
 ## Generating Secrets
 

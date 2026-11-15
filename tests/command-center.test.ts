@@ -1,47 +1,43 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
+import type { PrismaClient } from "@prisma/client";
 import { createPrismaClient } from "@/lib/prisma-client";
 import { AppError } from "@/lib/errors";
 import { assignMachine, createCustomer, createMachine, createPlan, grantCredits, recordUsage, suspendCustomer } from "@/server/domain";
 import { defaultPlanFeatures } from "@/lib/plan-features";
 import { can } from "@/lib/rbac";
+import { disposableDatabaseUrl, resetBusinessData } from "./reset-db";
 
-const dbPath = path.join(process.cwd(), "prisma", "command-test.db");
-process.env.DATABASE_URL = `file:${dbPath}`;
+const databaseUrl = disposableDatabaseUrl();
+if (databaseUrl) {
+  process.env.DATABASE_URL = databaseUrl;
+  process.env.DIRECT_URL = databaseUrl;
+}
 
-const prisma = createPrismaClient();
 const production = { type: "ADMIN" as const, id: "prod-admin", email: "prod@test.local", role: "ADMIN", tenant: "production" };
 const demo = { type: "ADMIN" as const, id: "demo-admin", email: "demo@example.com", role: "DEMO_ADMIN", tenant: "demo" };
 const auditor = { type: "ADMIN" as const, id: "aud", email: "aud@test.local", role: "AUDITOR", tenant: "production" };
 
+describe.skipIf(!databaseUrl)("tenant isolation and permissions", () => {
+let prisma: PrismaClient;
+
 beforeAll(() => {
-  if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
-  execSync("npx prisma db push --skip-generate --accept-data-loss", {
+  if (!databaseUrl) return;
+  execSync("npx prisma migrate deploy", {
     stdio: "inherit",
-    env: { ...process.env, DATABASE_URL: `file:${dbPath}` },
+    env: { ...process.env, DATABASE_URL: databaseUrl, DIRECT_URL: databaseUrl },
   });
+  prisma = createPrismaClient();
 });
 
 beforeEach(async () => {
-  await prisma.activityLog.deleteMany();
-  await prisma.usageEntry.deleteMany();
-  await prisma.notificationMessage.deleteMany();
-  await prisma.payment.deleteMany();
-  await prisma.loginEvent.deleteMany();
-  await prisma.machineAssignment.deleteMany();
-  await prisma.machine.deleteMany();
-  await prisma.subscription.deleteMany();
-  await prisma.customer.deleteMany();
-  await prisma.plan.deleteMany();
+  await resetBusinessData(prisma);
 });
 
 afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("tenant isolation and permissions", () => {
   it("blocks a demo admin from changing a production customer", async () => {
     const plan = await createPlan(
       { db: prisma, actor: production },

@@ -114,3 +114,10 @@ export function assertSameTenant(actor: AuditActor, recordTenant: string | null 
 export function isDemoRole(role: string | null | undefined) {
   return role === "DEMO_ADMIN";
 }
+
+export function rolePermissionCatalog(): { role: AdminRoleName; permissions: Permission[] }[] {
+  return ADMIN_ROLE_LIST.map((role) => ({
+    role,
+    permissions: [...ROLE_PERMISSIONS[role]],
+  }));
+}

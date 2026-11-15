@@ -24,7 +24,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (!email || !password) return null;
           
           const admin = await prisma.admin.findUnique({ where: { email } });
-          if (!admin || admin.status !== "ACTIVE") {
+          if (!admin || admin.status !== "ACTIVE" || admin.deletedAt) {
             if (admin) {
               await prisma.loginEvent.create({
                 data: {
@@ -94,8 +94,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             role: admin.role,
             tenant: admin.tenant,
           };
-        } catch (error) {
-          console.error("[Auth] Authorization error:", error);
+        } catch {
+          console.error("[Auth] Authorization failed.");
           return null;
         }
       },
