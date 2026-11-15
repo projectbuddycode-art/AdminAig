@@ -1,13 +1,9 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Admin } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { TEMPORARY_COOKIE, temporaryAdminRecord } from "@/lib/temporary-access";
 
 export async function activeAdmin(): Promise<Admin | null> {
-  const jar = await cookies();
-  if (jar.get(TEMPORARY_COOKIE)?.value === "1") return temporaryAdminRecord();
   const session = await auth();
   if (!session?.user?.id) return null;
   const admin = await prisma.admin.findUnique({ where: { id: session.user.id } });

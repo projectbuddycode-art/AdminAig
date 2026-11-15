@@ -1,12 +1,13 @@
 "use client";
 
 import { useActionState } from "react";
-import { loginAction, skipLoginAction } from "@/server/actions";
+import { dummyLoginAction, loginAction } from "@/server/actions";
 import { ErrorText, Field } from "@/components/ui";
 import { PendingSubmit } from "@/components/forms";
 
 export function LoginForm({ configurationError }: { configurationError: string | null }) {
   const [state, action] = useActionState(loginAction, null);
+  const [dummyState, dummyAction] = useActionState(dummyLoginAction, null);
 
   return (
     <div className="grid min-h-screen lg:grid-cols-[1.1fr_0.9fr]">
@@ -36,15 +37,16 @@ export function LoginForm({ configurationError }: { configurationError: string |
           <ErrorText message={state && "error" in state ? state.error : configurationError} />
           <PendingSubmit pendingLabel="Signing in…">Continue</PendingSubmit>
         </form>
-        <form action={skipLoginAction} className="w-full max-w-sm">
+        <form action={dummyAction} className="w-full max-w-sm">
           <button
             type="submit"
             className="mt-3 w-full rounded-md border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)]"
           >
-            Skip for now
+            Continue as administrator
           </button>
+          <ErrorText message={dummyState && "error" in dummyState ? dummyState.error : null} />
           <p className="mt-2 text-center text-xs leading-5 text-[var(--muted)]">
-            Temporary access. The password form remains available.
+            Dummy login with full administrator access. Customers, machines, plans, and reports stay on the real dashboard.
           </p>
         </form>
       </section>

@@ -51,11 +51,6 @@ export function AppShell({
               Demo environment
             </p>
           ) : null}
-          {adminEmail === "temporary@localhost" ? (
-            <p className="mt-2 rounded-md bg-[#f6e7c8] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#6a4b12]">
-              Temporary login
-            </p>
-          ) : null}
         </div>
         <nav className="mt-6 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3" aria-label="Primary">
           {NAV.map((item) => {

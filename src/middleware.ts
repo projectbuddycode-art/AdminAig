@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { TEMPORARY_COOKIE } from "@/lib/temporary-access";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isLogin = pathname === "/login";
-  const temporary = request.cookies.get(TEMPORARY_COOKIE)?.value === "1";
   const token = await getToken({ req: request, secret: process.env.AUTH_SECRET });
-  const signedIn = Boolean(token) || temporary;
 
-  if (!signedIn && !isLogin && (pathname.startsWith("/api/admin") || !pathname.startsWith("/api/"))) {
+  if (!token && !isLogin && (pathname.startsWith("/api/admin") || !pathname.startsWith("/api/"))) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -20,7 +17,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (signedIn && isLogin) {
+  if (token && isLogin) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);
