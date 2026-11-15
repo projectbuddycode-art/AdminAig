@@ -1,8 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth, signIn, signOut } from "@/lib/auth";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { signIn, signOut } from "@/lib/auth";
+import { activeAdmin } from "@/lib/current-admin";
 import { prisma } from "@/lib/db";
+import { TEMPORARY_COOKIE } from "@/lib/temporary-access";
 import { isAppError } from "@/lib/errors";
 import { AuthError } from "next-auth";
 import {
@@ -40,14 +44,8 @@ import { recordActivity } from "@/lib/audit";
 import type { AuditActor } from "@/lib/audit";
 
 async function actor(): Promise<AuditActor> {
-  const session = await auth();
-  if (!session?.user?.id) {
-    throw new Error("Unauthorized");
-  }
-  const admin = await prisma.admin.findUnique({ where: { id: session.user.id } });
-  if (!admin || admin.status !== "ACTIVE" || admin.deletedAt) {
-    throw new Error("Unauthorized");
-  }
+  const admin = await activeAdmin();
+  if (!admin) throw new Error("Unauthorized");
   return { type: "ADMIN", id: admin.id, email: admin.email, role: admin.role, tenant: admin.tenant };
 }
 
@@ -68,6 +66,13 @@ export async function loginAction(_: unknown, formData: FormData) {
       error: "Sign-in is not configured. Add AUTH_SECRET in Vercel and redeploy.",
     };
   }
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.startsWith("file:")) {
+    console.error("[Auth] DATABASE_URL is not a PostgreSQL connection.");
+    return {
+      ok: false as const,
+      error: "The database is not connected. Set DATABASE_URL to a PostgreSQL connection string.",
+    };
+  }
   try {
     await signIn("credentials", {
       email: String(formData.get("email") ?? ""),
@@ -83,7 +88,21 @@ export async function loginAction(_: unknown, formData: FormData) {
   }
 }
 
+export async function skipLoginAction() {
+  const jar = await cookies();
+  jar.set(TEMPORARY_COOKIE, "1", {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 12,
+    secure: process.env.NODE_ENV === "production",
+  });
+  redirect("/");
+}
+
 export async function logoutAction() {
+  const jar = await cookies();
+  jar.delete(TEMPORARY_COOKIE);
   await signOut({ redirectTo: "/login" });
 }
 
@@ -384,15 +403,16 @@ export async function recordMaintenanceAction(formData: FormData) {
 
 export async function updateSettingsAction(formData: FormData) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) return { ok: false as const, error: "Unauthorized" };
+    const admin = await activeAdmin();
+    if (!admin) return { ok: false as const, error: "Unauthorized" };
+    if (admin.id === "temporary") {
+      return { ok: false as const, error: "Temporary access cannot change the saved administrator." };
+    }
     const parsed = settingsSchema.parse({
       name: formData.get("name"),
       currentPassword: formData.get("currentPassword") || undefined,
       newPassword: formData.get("newPassword") || undefined,
     });
-    const admin = await prisma.admin.findUnique({ where: { id: session.user.id } });
-    if (!admin) return { ok: false as const, error: "Admin not found" };
 
     const data: { name: string; passwordHash?: string } = { name: parsed.name };
     if (parsed.newPassword) {

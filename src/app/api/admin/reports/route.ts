@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { idIn, idsBetween } from "@/server/dated-rows";
 import { prisma } from "@/lib/db";
-import { auth } from "@/lib/auth";
+import { activeAdmin } from "@/lib/current-admin";
 import { can } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -13,10 +13,8 @@ function csv(rows: string[][]) {
 }
 
 export async function GET(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const admin = await prisma.admin.findUnique({ where: { id: session.user.id } });
-  if (!admin || admin.status !== "ACTIVE") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const admin = await activeAdmin();
+  if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!can(admin.role, "reports.export") && !can(admin.role, "audit.view")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

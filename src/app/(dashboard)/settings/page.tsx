@@ -1,5 +1,5 @@
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { activeAdmin } from "@/lib/current-admin";
 import { Card, PageHeader } from "@/components/ui";
 import { SettingsForm } from "@/components/settings-form";
 import { CONNECTIVITY_UNAVAILABLE } from "@/lib/constants";
@@ -7,8 +7,7 @@ import { CONNECTIVITY_UNAVAILABLE } from "@/lib/constants";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const session = await auth();
-  const admin = session?.user?.id ? await prisma.admin.findUnique({ where: { id: session.user.id } }) : null;
+  const admin = await activeAdmin();
   const [customers, machines, plans] = await Promise.all([
     prisma.customer.count(),
     prisma.machine.count(),
