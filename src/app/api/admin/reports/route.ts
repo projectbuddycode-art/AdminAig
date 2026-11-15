@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 
+export const dynamic = "force-dynamic";
+
 function csv(rows: string[][]) {
   return rows
     .map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(","))
