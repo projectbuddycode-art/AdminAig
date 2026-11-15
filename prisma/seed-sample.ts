@@ -319,13 +319,14 @@ async function main() {
       },
     });
     if (machine.customer) {
+      const assignedCustomerId = id("sample_customer", machine.customer);
       await prisma.machineAssignment.upsert({
         where: { id: id("sample_assignment", machine.n) },
-        update: { customerId, status: machine.status === "SUSPENDED" ? "ENDED" : "ACTIVE", unassignedAt: machine.status === "SUSPENDED" ? addDays(now, -3) : null },
+        update: { customerId: assignedCustomerId, status: machine.status === "SUSPENDED" ? "ENDED" : "ACTIVE", unassignedAt: machine.status === "SUSPENDED" ? addDays(now, -3) : null },
         create: {
           id: id("sample_assignment", machine.n),
           machineId: machineDbId,
-          customerId: customerId!,
+          customerId: assignedCustomerId,
           tenant: TENANT,
           assignedAt: addDays(now, -15),
           status: machine.status === "SUSPENDED" ? "ENDED" : "ACTIVE",
