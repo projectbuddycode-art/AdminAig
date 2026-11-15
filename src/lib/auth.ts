@@ -4,10 +4,22 @@ import { compare } from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { recordActivity } from "@/lib/audit";
 
+// A copied local AUTH_URL would rewrite production auth requests to localhost.
+if (process.env.VERCEL) {
+  const configuredUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? "";
+  if (/localhost|127\.0\.0\.1/.test(configuredUrl)) {
+    delete process.env.AUTH_URL;
+    delete process.env.NEXTAUTH_URL;
+  }
+}
+
+const authSecret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  secret: authSecret,
   trustHost: true,
   session: { strategy: "jwt", maxAge: 60 * 60 * 12 },
-  pages: { signIn: "/login" },
+  pages: { signIn: "/login", error: "/login" },
   providers: [
     Credentials({
       name: "Admin credentials",

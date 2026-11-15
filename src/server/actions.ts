@@ -61,6 +61,13 @@ function fail(error: unknown): { ok: false; error: string } {
 }
 
 export async function loginAction(_: unknown, formData: FormData) {
+  if (!process.env.AUTH_SECRET && !process.env.NEXTAUTH_SECRET) {
+    console.error("[Auth] AUTH_SECRET is not set.");
+    return {
+      ok: false as const,
+      error: "Sign-in is not configured. Add AUTH_SECRET in Vercel and redeploy.",
+    };
+  }
   try {
     await signIn("credentials", {
       email: String(formData.get("email") ?? ""),
