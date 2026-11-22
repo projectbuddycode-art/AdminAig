@@ -4,8 +4,14 @@ import { createSampleClient } from "@/lib/sample-db";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
+function useSampleDatabase() {
+  const flag = process.env.USE_SAMPLE_DB?.trim().toLowerCase();
+  return flag === "true" || flag === "1" || flag === "yes" || !databaseConfigured();
+}
+
 function getPrisma() {
-  if (!databaseConfigured()) return createSampleClient();
+  // Local client demos can run without Postgres by using the in-memory sample records.
+  if (useSampleDatabase()) return createSampleClient();
   if (!globalForPrisma.prisma) {
     globalForPrisma.prisma = createPrismaClient();
   }

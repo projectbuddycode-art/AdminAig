@@ -2,12 +2,31 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { deriveMachineDisplay, toSubscriptionView, effectiveSubscriptionStatus } from "@/lib/entitlement";
 import { expireStaleSubscriptions, getCurrentSubscription } from "@/server/domain";
 import { parsePlanFeatures } from "@/lib/plan-features";
+import { useOfflineDemo } from "@/lib/db-status";
+import {
+  offlineActivity,
+  offlineCustomers,
+  offlineDashboardMetrics,
+  offlineMachines,
+  offlinePlans,
+  offlineSubscriptions,
+} from "@/server/offline-demo";
 
 function tenantFilter(tenant: string) {
   return { tenant };
 }
 
 export async function getDashboardMetrics(db: PrismaClient, tenant = "production") {
+  if (await useOfflineDemo()) return offlineDashboardMetrics();
+  try {
+    return await getDashboardMetricsLive(db, tenant);
+  } catch (error) {
+    if (await useOfflineDemo()) return offlineDashboardMetrics();
+    throw error;
+  }
+}
+
+async function getDashboardMetricsLive(db: PrismaClient, tenant = "production") {
   await expireStaleSubscriptions(db);
   const now = new Date();
   const startOfDay = new Date(now);
@@ -133,6 +152,25 @@ export async function listCustomers(
   db: PrismaClient,
   input: { q: string; status: string; page: number; pageSize: number; planId?: string; tenant?: string },
 ) {
+  if (await useOfflineDemo()) {
+    const sample = offlineCustomers();
+    return {
+      total: sample.total,
+      page: input.page,
+      pageSize: input.pageSize,
+      rows: sample.rows.map((customer) => ({
+        ...customer,
+        subscription: {
+          planName: customer.subscriptions[0]?.plan.name ?? "—",
+          status: customer.subscriptions[0]?.status ?? "NONE",
+          expiryDate: customer.subscriptions[0]?.expiryDate ?? null,
+        },
+        assignedMachineCount: 0,
+        assignedMachines: [] as string[],
+      })) as never,
+      offline: true as const,
+    };
+  }
   await expireStaleSubscriptions(db);
   const where: Prisma.CustomerWhereInput = { deletedAt: null };
   if (input.tenant) where.tenant = input.tenant;
@@ -236,6 +274,24 @@ export async function listMachines(
   db: PrismaClient,
   input: { q: string; status: string; page: number; pageSize: number; tenant?: string },
 ) {
+  if (await useOfflineDemo()) {
+    const sample = offlineMachines();
+    return {
+      total: sample.total,
+      page: input.page,
+      pageSize: input.pageSize,
+      rows: sample.rows.map((machine) => ({
+        ...machine,
+        planName: machine.status === "ASSIGNED" ? "Studio" : null,
+        subscriptionStatus: machine.status === "ASSIGNED" ? "ACTIVE" : null,
+        deletedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        tenant: "production",
+      })) as never,
+      offline: true as const,
+    };
+  }
   await expireStaleSubscriptions(db);
   const where: Prisma.MachineWhereInput = { deletedAt: null };
   if (input.tenant) where.tenant = input.tenant;
@@ -326,6 +382,20 @@ export async function getMachineDetail(db: PrismaClient, id: string, tenant?: st
 }
 
 export async function listPlans(db: PrismaClient, tenant?: string) {
+  if (await useOfflineDemo()) {
+    return offlinePlans().map((plan) => ({
+      ...plan,
+      description: "Offline demo plan",
+      currency: "INR",
+      featuresJson: "{}",
+      features: parsePlanFeatures("{}"),
+      subscriberCount: 2,
+      deletedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      priceAmount: null as never,
+    })) as never;
+  }
   const plans = await db.plan.findMany({
     where: { deletedAt: null, ...(tenant ? { tenant } : {}) },
     orderBy: { createdAt: "desc" },
@@ -364,6 +434,10 @@ export async function listSubscriptions(
   db: PrismaClient,
   input: { q: string; status: string; page: number; pageSize: number; tenant?: string },
 ) {
+  if (await useOfflineDemo()) {
+    const rows = offlineSubscriptions();
+    return { total: rows.length, page: input.page, pageSize: input.pageSize, rows: rows as never };
+  }
   await expireStaleSubscriptions(db);
   const where: Prisma.SubscriptionWhereInput = {};
   if (input.tenant) where.tenant = input.tenant;
@@ -410,6 +484,10 @@ export async function listActivity(
     targetType?: string;
   },
 ) {
+  if (await useOfflineDemo()) {
+    const rows = offlineActivity();
+    return { total: rows.length, page: input.page, pageSize: input.pageSize, rows: rows as never };
+  }
   const where: Prisma.ActivityLogWhereInput = {};
   if (input.tenant) where.tenant = input.tenant;
   if (input.targetType) where.targetType = input.targetType;

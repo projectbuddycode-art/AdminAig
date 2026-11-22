@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { loginAction } from "@/server/actions";
+import { dummyLoginAction, loginAction } from "@/server/actions";
 import { ErrorText, Field } from "@/components/ui";
 import { PendingSubmit } from "@/components/forms";
 
@@ -13,7 +13,9 @@ export function LoginForm({
   callbackUrl?: string;
 }) {
   const [state, action] = useActionState(loginAction, null);
-  const error = (state && "error" in state ? state.error : null) ?? configurationError;
+  const [demoState, demoAction] = useActionState(dummyLoginAction, null);
+  const passwordError = (state && "error" in state ? state.error : null) ?? configurationError;
+  const demoError = demoState && "error" in demoState ? demoState.error : null;
 
   return (
     <div className="grid min-h-screen lg:grid-cols-[1.1fr_0.9fr]">
@@ -33,17 +35,37 @@ export function LoginForm({
         <p className="text-xs text-[var(--muted)]">Box inventory is identity-based. IPs are not identifiers.</p>
       </section>
       <section className="flex flex-col items-center justify-center px-6 py-16">
-        <form action={action} className="w-full max-w-sm space-y-5">
+        <div className="w-full max-w-sm space-y-5">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">Sign in</p>
             <h2 className="mt-2 font-[family-name:var(--font-serif)] text-4xl">AIG Admin</h2>
           </div>
-          <input type="hidden" name="callbackUrl" value={callbackUrl} />
-          <Field label="Email" name="email" type="email" autoComplete="username" required />
-          <Field label="Password" name="password" type="password" autoComplete="current-password" required />
-          <ErrorText message={error} />
-          <PendingSubmit pendingLabel="Signing in…">Continue as Administrator</PendingSubmit>
-        </form>
+
+          <form action={demoAction} className="space-y-3">
+            <PendingSubmit pendingLabel="Opening dashboard…">Open demo dashboard</PendingSubmit>
+            <ErrorText message={demoError} />
+            <p className="text-center text-xs leading-5 text-[var(--muted)]">
+              One click for client demos. No password. Opens the real dashboard with a temporary session.
+            </p>
+          </form>
+
+          <div className="relative py-1 text-center text-[11px] uppercase tracking-wide text-[var(--muted)]">
+            <span className="bg-[var(--bg)] px-2">or use password</span>
+          </div>
+
+          <form action={action} className="space-y-5">
+            <input type="hidden" name="callbackUrl" value={callbackUrl} />
+            <Field label="Email" name="email" type="email" autoComplete="username" required />
+            <Field label="Password" name="password" type="password" autoComplete="current-password" required />
+            <ErrorText message={passwordError} />
+            <button
+              type="submit"
+              className="w-full rounded-md border border-[var(--border)] px-4 py-2.5 text-sm font-semibold text-[var(--text)]"
+            >
+              Continue as Administrator
+            </button>
+          </form>
+        </div>
       </section>
     </div>
   );

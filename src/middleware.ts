@@ -6,6 +6,11 @@ function authSecret() {
   return process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
 }
 
+function openDashboardAccess() {
+  const value = process.env.OPEN_DASHBOARD?.trim().toLowerCase();
+  return value === "true" || value === "1" || value === "yes";
+}
+
 function secureSessionCookie(request: NextRequest) {
   return (
     request.nextUrl.protocol === "https:" ||
@@ -17,8 +22,17 @@ function secureSessionCookie(request: NextRequest) {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isLogin = pathname === "/login";
-  const secret = authSecret();
 
+  if (openDashboardAccess()) {
+    if (isLogin) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      return NextResponse.redirect(url);
+    }
+    return NextResponse.next();
+  }
+
+  const secret = authSecret();
   const token = secret
     ? await getToken({
         req: request,
