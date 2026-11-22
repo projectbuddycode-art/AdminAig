@@ -1,5 +1,4 @@
-/** When true, the admin UI is reachable without signing in. Turn off for real deployments. */
+/** Dashboard pages are open without signing in. */
 export function openDashboardAccess() {
-  const value = process.env.OPEN_DASHBOARD?.trim().toLowerCase();
-  return value === "true" || value === "1" || value === "yes";
+  return true;
 }

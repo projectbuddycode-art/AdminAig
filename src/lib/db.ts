@@ -6,7 +6,10 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function useSampleDatabase() {
   const flag = process.env.USE_SAMPLE_DB?.trim().toLowerCase();
-  return flag === "true" || flag === "1" || flag === "yes" || !databaseConfigured();
+  // Default on so the dashboard works without a live Postgres connection.
+  if (flag === "false" || flag === "0" || flag === "no") return !databaseConfigured();
+  if (flag === "true" || flag === "1" || flag === "yes") return true;
+  return true;
 }
 
 function getPrisma() {

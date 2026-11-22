@@ -1,9 +1,7 @@
-import { redirect } from "next/navigation";
 import type { Admin } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { databaseConfigured } from "@/lib/prisma-client";
-import { openDashboardAccess } from "@/lib/open-access";
 
 function guestAdmin(): Admin {
   const now = new Date();
@@ -21,9 +19,19 @@ function guestAdmin(): Admin {
   };
 }
 
-async function openAccessAdmin(): Promise<Admin | null> {
-  if (!openDashboardAccess()) return null;
+async function resolveAdmin(): Promise<Admin> {
+  try {
+    const session = await auth();
+    if (session?.user?.id) {
+      const admin = await prisma.admin.findUnique({ where: { id: session.user.id } });
+      if (admin && admin.status === "ACTIVE" && !admin.deletedAt) return admin;
+    }
+  } catch {
+    // Continue without a session.
+  }
+
   if (!databaseConfigured()) return guestAdmin();
+
   try {
     const email = (process.env.ADMIN_EMAIL || "admin@aig.local").toLowerCase();
     const byEmail = await prisma.admin.findUnique({ where: { email } });
@@ -39,20 +47,9 @@ async function openAccessAdmin(): Promise<Admin | null> {
 }
 
 export async function activeAdmin(): Promise<Admin | null> {
-  const session = await auth();
-  if (session?.user?.id) {
-    try {
-      const admin = await prisma.admin.findUnique({ where: { id: session.user.id } });
-      if (admin && admin.status === "ACTIVE" && !admin.deletedAt) return admin;
-    } catch {
-      // Fall through to open-access guest when the database is unavailable.
-    }
-  }
-  return openAccessAdmin();
+  return resolveAdmin();
 }
 
 export async function currentAdmin() {
-  const admin = await activeAdmin();
-  if (!admin) redirect("/login");
-  return admin;
+  return resolveAdmin();
 }

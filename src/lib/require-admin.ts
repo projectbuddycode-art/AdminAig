@@ -8,7 +8,7 @@ export async function requireAdmin() {
   if (!admin) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), session: null, actor: null };
   }
-  const session = await auth();
+  const session = await auth().catch(() => null);
   const actor: AuditActor = { type: "ADMIN", id: admin.id, email: admin.email, role: admin.role, tenant: admin.tenant };
   return { error: null, session, actor, admin };
 }
