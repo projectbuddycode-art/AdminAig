@@ -4,7 +4,7 @@ import { createSampleClient } from "@/lib/sample-db";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-function useSampleDatabase() {
+function sampleDatabaseEnabled() {
   const flag = process.env.USE_SAMPLE_DB?.trim().toLowerCase();
   // Default on so the dashboard works without a live Postgres connection.
   if (flag === "false" || flag === "0" || flag === "no") return !databaseConfigured();
@@ -14,7 +14,7 @@ function useSampleDatabase() {
 
 function getPrisma() {
   // Local client demos can run without Postgres by using the in-memory sample records.
-  if (useSampleDatabase()) return createSampleClient();
+  if (sampleDatabaseEnabled()) return createSampleClient();
   if (!globalForPrisma.prisma) {
     globalForPrisma.prisma = createPrismaClient();
   }

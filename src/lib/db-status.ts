@@ -17,6 +17,6 @@ export async function databaseReachable() {
   }
 }
 
-export async function useOfflineDemo() {
+export async function offlineDemoEnabled() {
   return openDashboardAccess() && !(await databaseReachable());
 }

@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { deriveMachineDisplay, toSubscriptionView, effectiveSubscriptionStatus } from "@/lib/entitlement";
 import { expireStaleSubscriptions, getCurrentSubscription } from "@/server/domain";
 import { parsePlanFeatures } from "@/lib/plan-features";
-import { useOfflineDemo } from "@/lib/db-status";
+import { offlineDemoEnabled } from "@/lib/db-status";
 import {
   offlineActivity,
   offlineCustomers,
@@ -17,11 +17,11 @@ function tenantFilter(tenant: string) {
 }
 
 export async function getDashboardMetrics(db: PrismaClient, tenant = "production") {
-  if (await useOfflineDemo()) return offlineDashboardMetrics();
+  if (await offlineDemoEnabled()) return offlineDashboardMetrics();
   try {
     return await getDashboardMetricsLive(db, tenant);
   } catch (error) {
-    if (await useOfflineDemo()) return offlineDashboardMetrics();
+    if (await offlineDemoEnabled()) return offlineDashboardMetrics();
     throw error;
   }
 }
@@ -152,7 +152,7 @@ export async function listCustomers(
   db: PrismaClient,
   input: { q: string; status: string; page: number; pageSize: number; planId?: string; tenant?: string },
 ) {
-  if (await useOfflineDemo()) {
+  if (await offlineDemoEnabled()) {
     const sample = offlineCustomers();
     return {
       total: sample.total,
@@ -274,7 +274,7 @@ export async function listMachines(
   db: PrismaClient,
   input: { q: string; status: string; page: number; pageSize: number; tenant?: string },
 ) {
-  if (await useOfflineDemo()) {
+  if (await offlineDemoEnabled()) {
     const sample = offlineMachines();
     return {
       total: sample.total,
@@ -382,7 +382,7 @@ export async function getMachineDetail(db: PrismaClient, id: string, tenant?: st
 }
 
 export async function listPlans(db: PrismaClient, tenant?: string) {
-  if (await useOfflineDemo()) {
+  if (await offlineDemoEnabled()) {
     return offlinePlans().map((plan) => ({
       ...plan,
       description: "Offline demo plan",
@@ -434,7 +434,7 @@ export async function listSubscriptions(
   db: PrismaClient,
   input: { q: string; status: string; page: number; pageSize: number; tenant?: string },
 ) {
-  if (await useOfflineDemo()) {
+  if (await offlineDemoEnabled()) {
     const rows = offlineSubscriptions();
     return { total: rows.length, page: input.page, pageSize: input.pageSize, rows: rows as never };
   }
@@ -484,7 +484,7 @@ export async function listActivity(
     targetType?: string;
   },
 ) {
-  if (await useOfflineDemo()) {
+  if (await offlineDemoEnabled()) {
     const rows = offlineActivity();
     return { total: rows.length, page: input.page, pageSize: input.pageSize, rows: rows as never };
   }
