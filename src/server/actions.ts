@@ -6,6 +6,7 @@ import { activeAdmin } from "@/lib/current-admin";
 import { prisma } from "@/lib/db";
 import { isAppError } from "@/lib/errors";
 import { AuthError } from "next-auth";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import {
   activateCustomer,
   activateMachine,
@@ -55,6 +56,12 @@ function fail(error: unknown): { ok: false; error: string } {
   return { ok: false, error: "Something went wrong. Please try again." };
 }
 
+function safeRedirectTo(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "/").trim() || "/";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
+  return raw;
+}
+
 export async function loginAction(_: unknown, formData: FormData) {
   if (!process.env.AUTH_SECRET && !process.env.NEXTAUTH_SECRET) {
     console.error("[Auth] AUTH_SECRET is not set.");
@@ -74,14 +81,16 @@ export async function loginAction(_: unknown, formData: FormData) {
     await signIn("credentials", {
       email: String(formData.get("email") ?? ""),
       password: String(formData.get("password") ?? ""),
-      redirectTo: "/",
+      redirectTo: safeRedirectTo(formData.get("callbackUrl")),
     });
     return { ok: true as const };
   } catch (error) {
+    if (isRedirectError(error)) throw error;
     if (error instanceof AuthError) {
       return { ok: false as const, error: "Invalid email or password." };
     }
-    throw error;
+    console.error("[Auth] Sign-in failed.");
+    return { ok: false as const, error: "Sign-in could not be completed. Try again." };
   }
 }
 
@@ -94,6 +103,7 @@ export async function dummyLoginAction() {
     await signIn("credentials", { dummy: "1", redirectTo: "/" });
     return { ok: true as const };
   } catch (error) {
+    if (isRedirectError(error)) throw error;
     if (error instanceof AuthError) {
       return { ok: false as const, error: "The administrator account could not be opened." };
     }

@@ -108,6 +108,7 @@ export function Field({
   required,
   defaultValue,
   placeholder,
+  autoComplete,
 }: {
   label: string;
   name: string;
@@ -115,6 +116,7 @@ export function Field({
   required?: boolean;
   defaultValue?: string;
   placeholder?: string;
+  autoComplete?: string;
 }) {
   return (
     <label className="block min-w-0 text-sm">
@@ -125,6 +127,7 @@ export function Field({
         required={required}
         defaultValue={defaultValue}
         placeholder={placeholder}
+        autoComplete={autoComplete}
         className="w-full rounded-[var(--radius)] border border-[var(--border)] bg-white px-3 py-2.5 text-[var(--text)] outline-none"
       />
     </label>

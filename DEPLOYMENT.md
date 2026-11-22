@@ -45,6 +45,12 @@ Run this command twice to generate two different secrets.
 If you see "There was a problem with the server configuration" error:
 
 1. Verify all required environment variables are set on Vercel
-2. Check that `ADMIN_PASSWORD` is at least 8 characters
-3. Ensure `AUTH_SECRET` is exactly 32 hexadecimal characters
+2. Ensure `AUTH_SECRET` is set (at least 32 characters) for Production
+3. Set `AUTH_URL` to the public `https://` deployment origin
 4. Check Vercel deployment logs for specific errors
+
+If login returns to `/login` with no error message:
+
+1. Confirm `AUTH_SECRET` matches between Auth.js and middleware (redeploy after setting it)
+2. Confirm `DATABASE_URL` is PostgreSQL and the demo administrator was created with `npm run demo:create`
+3. Confirm middleware uses `secureCookie` for HTTPS (`__Secure-authjs.session-token`)

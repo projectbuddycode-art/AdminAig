@@ -32,9 +32,13 @@ Set these in the Vercel project for Production. Use the same names for Preview o
 5. Run `npm run db:seed` with `ADMIN_EMAIL` and `ADMIN_PASSWORD` set in that shell when a production administrator is required.
 6. Create the demo administrator once with the commands in `docs/demo-login.md`.
 7. Open `/api/health`. The response should be `{"ok":true,"service":"aig-admin","database":"up"}`.
-8. Sign in at `/login`.
+8. Sign in at `/login` with the demo administrator email and `DEMO_ADMIN_PASSWORD`. The button is **Continue as Administrator** and uses those credentials. It does not use a bypass login.
 
 `npm run db:seed:demo` is a separate workstation command. It writes synthetic `tenant = demo` rows and does not rotate the demo administrator password.
+
+## Session cookies on Vercel
+
+Auth.js sets `__Secure-authjs.session-token` on HTTPS. Middleware must call `getToken` with `secureCookie: true` (or when `VERCEL=1`) and with `AUTH_SECRET` or `NEXTAUTH_SECRET`. If middleware looks for the non-secure cookie name, login appears to succeed and then returns to `/login`.
 
 ## Serverless notes
 
