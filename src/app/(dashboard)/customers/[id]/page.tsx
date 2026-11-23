@@ -8,7 +8,8 @@ import { asFormAction } from "@/lib/form-action";
 import { EditCustomerForm } from "@/components/customer-forms";
 import { currentAdmin } from "@/lib/current-admin";
 import { format } from "date-fns";
-import { LineChart } from "@/components/report-charts";
+import Link from "next/link";
+import { AreaTrend, Donut } from "@/components/report-charts";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,12 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge value={customer.status} />
+            <Link
+              href={`/reports/customer/${customer.id}`}
+              className="rounded-md bg-[#1e3a5f] px-3 py-2 text-sm font-semibold text-white"
+            >
+              Customer report
+            </Link>
             <form action={asFormAction(customer.status === "ACTIVE" ? suspendCustomerAction.bind(null, customer.id) : activateCustomerAction.bind(null, customer.id))}>
             <ConfirmSubmit
               label={customer.status === "ACTIVE" ? "Suspend customer" : "Reactivate customer"}
@@ -188,23 +195,49 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
         </Card>
       </div>
 
-      <Card className="mt-5">
-        <h2 className="mb-2 font-semibold">Successful export trend</h2>
-        <LineChart
-          label="Successful exports"
-          points={Object.entries(
-            detail.usage
-              .filter((row) => row.status === "SUCCESS")
-              .reduce<Record<string, number>>((counts, row) => {
-                const key = format(row.createdAt, "MMM yyyy");
-                counts[key] = (counts[key] ?? 0) + 1;
-                return counts;
-              }, {}),
-          )
-            .map(([label, value]) => ({ label, value }))
-            .reverse()}
-        />
-      </Card>
+      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        <Card>
+          <div className="mb-2 flex items-end justify-between gap-2">
+            <div>
+              <h2 className="font-semibold">Successful export trend</h2>
+              <p className="text-xs text-[var(--muted)]">Exports recorded for this customer</p>
+            </div>
+            <Link href={`/reports/customer/${customer.id}`} className="text-sm font-semibold text-[#1e3a5f]">
+              Full report →
+            </Link>
+          </div>
+          <AreaTrend
+            label="Successful exports"
+            points={Object.entries(
+              detail.usage
+                .filter((row) => row.status === "SUCCESS")
+                .reduce<Record<string, number>>((counts, row) => {
+                  const key = format(row.createdAt, "dd MMM");
+                  counts[key] = (counts[key] ?? 0) + 1;
+                  return counts;
+                }, {}),
+            ).map(([label, value]) => ({ label, value }))}
+          />
+        </Card>
+        <Card>
+          <h2 className="mb-2 font-semibold">Job outcomes</h2>
+          <Donut
+            label="Job outcomes"
+            slices={[
+              {
+                label: "Successful",
+                value: detail.usage.filter((row) => row.status === "SUCCESS").length,
+                color: "#2c7a4a",
+              },
+              {
+                label: "Failed",
+                value: detail.usage.filter((row) => row.status === "FAILED").length,
+                color: "#9b1c2a",
+              },
+            ]}
+          />
+        </Card>
+      </div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-2">
         <Card>

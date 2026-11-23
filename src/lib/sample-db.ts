@@ -171,8 +171,22 @@ function shape(store: Record<string, Row[]>, table: string, row: Row, args?: { i
     if (spec === true) selected[key] = copy[key];
     else if (spec && typeof spec === "object") {
       const target = MANY[table]?.[key]?.table ?? ONE[table]?.[key]?.table ?? table;
-      const nested = relatedRows(store, table, key, row);
-      const nestedShaped = nested.map((item) => shape(store, target, item, { select: (spec as { select?: Where }).select }));
+      const options = spec as {
+        where?: Where;
+        orderBy?: Record<string, "asc" | "desc">;
+        take?: number;
+        include?: Where;
+        select?: Where;
+      };
+      let nested = relatedRows(store, table, key, row).filter((item) => matches(store, target, item, options.where));
+      nested = sortRows(nested, options.orderBy);
+      if (options.take) nested = nested.slice(0, options.take);
+      const nestedShaped = nested.map((item) =>
+        shape(store, target, item, {
+          include: options.include,
+          select: options.select,
+        }),
+      );
       selected[key] = MANY[table]?.[key] ? nestedShaped : nestedShaped[0] ?? null;
     }
   }

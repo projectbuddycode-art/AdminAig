@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { formatChange, percentChange, REPORT_PRESETS, resolveReportRange } from "@/lib/report-range";
 import { getAnalytics, type ReportSection } from "@/server/analytics";
-import { BarChart, Donut, LineChart } from "@/components/report-charts";
+import { AreaTrend, BarChart, Donut, DualTrend, LineChart } from "@/components/report-charts";
 import { Card, EmptyState, PageHeader, Pagination } from "@/components/ui";
 import { PrintButton } from "@/components/print-button";
 
@@ -28,6 +28,102 @@ function showValue(value: number | null, kind: "number" | "money" | "percent") {
   if (kind === "money") return money(value);
   if (kind === "percent") return `${value}%`;
   return value.toLocaleString("en-IN");
+}
+
+function chartCopy(section: ReportSection) {
+  switch (section) {
+    case "usage":
+      return {
+        trend: "Processing volume",
+        trendBody: "Jobs recorded across the selected range",
+        split: "Job outcomes",
+        splitBody: "Successful vs failed ledger rows",
+        bars: "Exports by customer",
+        barsBody: "Top customers by successful exports",
+        composition: "Job duration mix",
+        compositionBody: "Share of processing durations",
+        secondary: "Credits consumed",
+        ranking: "Credits by customer",
+      };
+    case "finance":
+      return {
+        trend: "Collected revenue",
+        trendBody: "Verified PAID amounts (INR)",
+        split: "Payment status",
+        splitBody: "Count of payment records by status",
+        bars: "Revenue by month",
+        barsBody: "Collected cash by month",
+        composition: "Amount mix",
+        compositionBody: "Collected, pending, and refunded totals",
+        secondary: "Revenue trend",
+        ranking: "Revenue by customer",
+      };
+    case "machines":
+      return {
+        trend: "Machine activity",
+        trendBody: "Usage events linked to machines",
+        split: "Connectivity",
+        splitBody: "Current heartbeat classification",
+        bars: "Fleet by model",
+        barsBody: "Registered machines by model",
+        composition: "Error load",
+        compositionBody: "Recorded machine errors in range",
+        secondary: "Activity",
+        ranking: "Models",
+      };
+    case "subscriptions":
+      return {
+        trend: "New subscriptions",
+        trendBody: "Subscriptions created in range",
+        split: "Plan mix",
+        splitBody: "Active catalog distribution",
+        bars: "Expiries",
+        barsBody: "Subscriptions expiring in range",
+        composition: "Plan composition",
+        compositionBody: "Share by plan",
+        secondary: "Trend",
+        ranking: "Plans",
+      };
+    case "activity":
+      return {
+        trend: "Customer logins",
+        trendBody: "Successful customer login events",
+        split: "Login outcomes",
+        splitBody: "Successful vs failed attempts",
+        bars: "Activity",
+        barsBody: "Events across the range",
+        composition: "Composition",
+        compositionBody: "Outcome share",
+        secondary: "Logins",
+        ranking: "Activity",
+      };
+    case "customers":
+      return {
+        trend: "Customer acquisition",
+        trendBody: "New registrations over time",
+        split: "Account health",
+        splitBody: "Active, inactive, and suspended",
+        bars: "Registrations by month",
+        barsBody: "New customers grouped by month",
+        composition: "Plan attachment",
+        compositionBody: "Subscriptions by plan",
+        secondary: "Acquisition",
+        ranking: "Plans",
+      };
+    default:
+      return {
+        trend: "Usage volume",
+        trendBody: "Processing jobs across the selected range",
+        split: "Job outcomes",
+        splitBody: "Successful vs failed jobs",
+        bars: "Top exporters",
+        barsBody: "Customers with the most successful exports",
+        composition: "Plan mix",
+        compositionBody: "Subscriptions by plan",
+        secondary: "Credits consumed",
+        ranking: "Revenue / credits ranking",
+      };
+  }
 }
 
 export async function ReportBody({
@@ -58,24 +154,39 @@ export async function ReportBody({
     adminEmail: read("admin") || undefined,
     action: read("action") || undefined,
   };
-  const [report, plans, customers, machines] = await Promise.all([
-    section === "finance" && !can(admin.role, "payments.view")
-      ? null
-      : getAnalytics(prisma, section, filters),
-    prisma.plan.findMany({ where: { tenant: admin.tenant }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.customer.findMany({
-      where: { tenant: admin.tenant },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-      take: 200,
-    }),
-    prisma.machine.findMany({
-      where: { tenant: admin.tenant },
-      select: { id: true, machineId: true },
-      orderBy: { machineId: "asc" },
-      take: 200,
-    }),
-  ]);
+
+  let report: Awaited<ReturnType<typeof getAnalytics>> | null = null;
+  let loadError: string | null = null;
+  let plans: Array<{ id: string; name: string }> = [];
+  let customers: Array<{ id: string; name: string }> = [];
+  let machines: Array<{ id: string; machineId: string }> = [];
+
+  try {
+    const [analytics, planRows, customerRows, machineRows] = await Promise.all([
+      section === "finance" && !can(admin.role, "payments.view")
+        ? Promise.resolve(null)
+        : getAnalytics(prisma, section, filters),
+      prisma.plan.findMany({ where: { tenant: admin.tenant }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      prisma.customer.findMany({
+        where: { tenant: admin.tenant },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+        take: 200,
+      }),
+      prisma.machine.findMany({
+        where: { tenant: admin.tenant },
+        select: { id: true, machineId: true },
+        orderBy: { machineId: "asc" },
+        take: 200,
+      }),
+    ]);
+    report = analytics;
+    plans = planRows;
+    customers = customerRows;
+    machines = machineRows;
+  } catch (error) {
+    loadError = error instanceof Error ? error.message : "Analytics query failed";
+  }
 
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(raw)) {
@@ -87,14 +198,16 @@ export async function ReportBody({
     copy.set("page", String(nextPage));
     return `${print ? "/reports/print" : "/reports"}?${copy.toString()}`;
   };
-  const exportHref = `/api/admin/reports?kind=${section}&from=${range.from.toISOString()}&to=${range.to.toISOString()}`;
+  const exportHref = `/api/admin/reports?kind=${section}&from=${range.from.toISOString()}&to=${range.to.toISOString()}${filters.customerId ? `&customerId=${filters.customerId}` : ""}`;
+  const copy = chartCopy(section);
+  const selectedCustomer = customers.find((customer) => customer.id === filters.customerId);
 
   return (
     <div className="analytics">
       <PageHeader
-        eyebrow={admin.tenant === "demo" ? "Demo data" : "Live tenant"}
+        eyebrow={admin.tenant === "demo" ? "Demo data" : "Analytics"}
         title="Reports and analytics"
-        description={`${range.label}. Figures are aggregated for this tenant only. Updated ${format(report?.generatedAt ?? new Date(), "dd MMM yyyy HH:mm")}.`}
+        description={`${range.label}. Tenant-scoped figures only. Updated ${format(report?.generatedAt ?? new Date(), "dd MMM yyyy HH:mm")}.`}
         actions={
           print ? (
             <PrintButton />
@@ -110,12 +223,47 @@ export async function ReportBody({
           )
         }
       />
+
+      {selectedCustomer ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius)] border border-[#c9d7e8] bg-[#eef3f9] px-4 py-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#1e3a5f]">Customer report filter</p>
+            <p className="text-sm text-[var(--text-secondary)]">
+              Showing analytics for <span className="font-semibold text-[var(--text)]">{selectedCustomer.name}</span>
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/reports/customer/${selectedCustomer.id}?preset=${range.preset}`}
+              className="rounded-md bg-[#1e3a5f] px-3 py-2 text-sm font-semibold text-white"
+            >
+              Open full customer report
+            </Link>
+            <Link href={`/customers/${selectedCustomer.id}`} className="rounded-md border border-[var(--border)] bg-white px-3 py-2 text-sm font-semibold">
+              Customer profile
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       <form className="mb-4 grid gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-white p-3 md:grid-cols-4" method="get">
         <input type="hidden" name="section" value={section} />
         <select name="preset" defaultValue={range.preset} aria-label="Date range" className="rounded-md border border-[var(--border)] px-2 py-2 text-sm">
           {REPORT_PRESETS.map((preset) => (
             <option key={preset} value={preset}>
-              {preset === "7d" ? "Last 7 days" : preset === "30d" ? "Last 30 days" : preset === "90d" ? "Last 90 days" : preset === "month" ? "This month" : preset === "lastMonth" ? "Last month" : preset === "year" ? "This year" : preset[0].toUpperCase() + preset.slice(1)}
+              {preset === "7d"
+                ? "Last 7 days"
+                : preset === "30d"
+                  ? "Last 30 days"
+                  : preset === "90d"
+                    ? "Last 90 days"
+                    : preset === "month"
+                      ? "This month"
+                      : preset === "lastMonth"
+                        ? "Last month"
+                        : preset === "year"
+                          ? "This year"
+                          : preset[0].toUpperCase() + preset.slice(1)}
             </option>
           ))}
         </select>
@@ -161,6 +309,7 @@ export async function ReportBody({
           Apply
         </button>
       </form>
+
       <nav className="mb-4 flex gap-2 overflow-x-auto" aria-label="Report sections">
         {allowed.map((item) => (
           <Link
@@ -172,50 +321,110 @@ export async function ReportBody({
           </Link>
         ))}
       </nav>
-      {!report ? (
+
+      {loadError ? (
+        <Card>
+          <h2 className="font-[family-name:var(--font-serif)] text-2xl">Reports could not be loaded</h2>
+          <p className="mt-2 text-sm text-[var(--text-secondary)]">{loadError}</p>
+        </Card>
+      ) : !report ? (
         <EmptyState title="Finance reports are restricted" body="Your role cannot view payment amounts." />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {report.kpis.map((kpi) => (
-              <Card key={kpi.label}>
+              <div key={kpi.label} className="rounded-[var(--radius)] border border-[var(--border)] bg-gradient-to-br from-white to-[#f4f7fb] p-4 shadow-[0_1px_0_rgba(30,58,95,0.04)]">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">{kpi.label}</p>
-                <p className="mt-2 font-[family-name:var(--font-serif)] text-3xl">{showValue(kpi.value, kpi.format)}</p>
+                <p className="mt-2 font-[family-name:var(--font-serif)] text-3xl tracking-tight text-[#1e3a5f]">{showValue(kpi.value, kpi.format)}</p>
                 <p className={`mt-1 text-xs ${kpi.previous !== null && kpi.value !== null && kpi.value >= kpi.previous ? "text-[#2c7a4a]" : "text-[var(--muted)]"}`}>
-                  {kpi.format === "percent" ? "Shown only when a prior cohort exists" : formatChange(kpi.value !== null && kpi.previous !== null ? percentChange(kpi.value, kpi.previous) : null)}
+                  {kpi.format === "percent"
+                    ? "Shown only when a prior cohort exists"
+                    : formatChange(kpi.value !== null && kpi.previous !== null ? percentChange(kpi.value, kpi.previous) : null)}
                 </p>
                 {"note" in kpi && kpi.note ? <p className="mt-1 text-xs text-[var(--muted)]">{kpi.note}</p> : null}
-              </Card>
+              </div>
             ))}
           </div>
+
           <div className="mt-4 grid gap-4 xl:grid-cols-2">
             <Card>
-              <h2 className="mb-2 text-sm font-semibold">Trend</h2>
-              <LineChart points={report.charts.acquisition} label="Trend" />
+              <div className="mb-3">
+                <h2 className="text-sm font-semibold text-[#1e3a5f]">{copy.trend}</h2>
+                <p className="text-xs text-[var(--muted)]">{copy.trendBody}</p>
+              </div>
+              {(report.charts.secondary?.length ?? 0) > 0 ? (
+                <DualTrend
+                  primary={report.charts.acquisition}
+                  secondary={report.charts.secondary ?? []}
+                  primaryLabel={section === "finance" ? "Revenue" : "Jobs"}
+                  secondaryLabel={section === "finance" ? "Collected" : "Credits"}
+                />
+              ) : (
+                <AreaTrend points={report.charts.acquisition} label={copy.trend} />
+              )}
             </Card>
             <Card>
-              <h2 className="mb-2 text-sm font-semibold">Distribution</h2>
-              <Donut slices={report.charts.split} label="Distribution" />
+              <div className="mb-3">
+                <h2 className="text-sm font-semibold text-[#1e3a5f]">{copy.split}</h2>
+                <p className="text-xs text-[var(--muted)]">{copy.splitBody}</p>
+              </div>
+              <Donut slices={report.charts.split} label={copy.split} />
             </Card>
-            {report.charts.byMonth.length > 0 ? (
-              <Card>
-                <h2 className="mb-2 text-sm font-semibold">Breakdown</h2>
-                <BarChart points={report.charts.byMonth} label="Breakdown" />
-              </Card>
-            ) : null}
-            {report.charts.plans.length > 0 ? (
-              <Card>
-                <h2 className="mb-2 text-sm font-semibold">Composition</h2>
-                <Donut slices={report.charts.plans} label="Composition" />
-              </Card>
-            ) : null}
+            <Card>
+              <div className="mb-3">
+                <h2 className="text-sm font-semibold text-[#1e3a5f]">{copy.bars}</h2>
+                <p className="text-xs text-[var(--muted)]">{copy.barsBody}</p>
+              </div>
+              <BarChart points={report.charts.byMonth} label={copy.bars} horizontal={section === "usage" || section === "overview"} />
+            </Card>
+            <Card>
+              <div className="mb-3">
+                <h2 className="text-sm font-semibold text-[#1e3a5f]">
+                  {(report.charts.ranking?.length ?? 0) > 0 ? copy.ranking : copy.composition}
+                </h2>
+                <p className="text-xs text-[var(--muted)]">
+                  {(report.charts.ranking?.length ?? 0) > 0 ? "Ranked comparison for the selected range" : copy.compositionBody}
+                </p>
+              </div>
+              {(report.charts.ranking?.length ?? 0) > 0 ? (
+                <BarChart points={report.charts.ranking ?? []} label={copy.ranking} horizontal color="#2c7a4a" />
+              ) : report.charts.plans.length > 0 ? (
+                <Donut slices={report.charts.plans} label={copy.composition} />
+              ) : (
+                <LineChart points={report.charts.acquisition} label={copy.trend} />
+              )}
+            </Card>
           </div>
+
+          {!filters.customerId && (section === "overview" || section === "customers" || section === "usage") ? (
+            <Card className="mt-4">
+              <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-[#1e3a5f]">Browse individual customer reports</h2>
+                  <p className="text-xs text-[var(--muted)]">Open a dedicated report with usage, credits, payments, and login activity.</p>
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {customers.slice(0, 12).map((customer) => (
+                  <Link
+                    key={customer.id}
+                    href={`/reports/customer/${customer.id}?preset=${range.preset}`}
+                    className="rounded-lg border border-[var(--border)] bg-[#f8fafc] px-3 py-3 text-sm transition hover:border-[#1e3a5f] hover:bg-white"
+                  >
+                    <span className="font-semibold text-[#1e3a5f]">{customer.name}</span>
+                    <span className="mt-1 block text-xs text-[var(--muted)]">View customer report →</span>
+                  </Link>
+                ))}
+              </div>
+            </Card>
+          ) : null}
+
           <div className="mt-4 space-y-2 text-xs text-[var(--text-secondary)]">
             {report.notes.map((note) => (
               <p key={note}>{note}</p>
             ))}
           </div>
-          <ReportTable section={section} tables={report.tables as Record<string, unknown>} />
+          <ReportTable section={section} tables={report.tables as Record<string, unknown>} preset={range.preset} />
           <Pagination page={page} pageSize={8} total={report.total} href={href} />
         </>
       )}
@@ -223,7 +432,15 @@ export async function ReportBody({
   );
 }
 
-function ReportTable({ section, tables }: { section: ReportSection; tables: Record<string, unknown> }) {
+function ReportTable({
+  section,
+  tables,
+  preset,
+}: {
+  section: ReportSection;
+  tables: Record<string, unknown>;
+  preset: string;
+}) {
   if (section === "machines" && Array.isArray(tables.machines)) {
     const rows = tables.machines as Array<Record<string, unknown>>;
     if (rows.length === 0) return <EmptyState title="No machines" body="No machines match these filters." />;
@@ -252,7 +469,13 @@ function ReportTable({ section, tables }: { section: ReportSection; tables: Reco
                   </Link>
                   {row.demoLabel ? <div className="text-[10px]">DEMO DATA</div> : null}
                 </td>
-                <td>{row.customerId ? <Link href={`/customers/${row.customerId}`}>{String(row.customer)}</Link> : String(row.customer)}</td>
+                <td>
+                  {row.customerId ? (
+                    <Link href={`/reports/customer/${row.customerId}?preset=${preset}`}>{String(row.customer)}</Link>
+                  ) : (
+                    String(row.customer)
+                  )}
+                </td>
                 <td>{String(row.model)}</td>
                 <td>{String(row.firmwareVersion ?? "—")}</td>
                 <td>{row.lastSeenAt ? format(new Date(String(row.lastSeenAt)), "dd MMM HH:mm") : "None recorded"}</td>
@@ -267,12 +490,17 @@ function ReportTable({ section, tables }: { section: ReportSection; tables: Reco
       </Card>
     );
   }
-  if (section === "usage" && Array.isArray(tables.ranked)) {
+  if ((section === "usage" || section === "overview") && Array.isArray(tables.ranked) && tables.ranked.length > 0) {
     const rows = tables.ranked as Array<Record<string, unknown>>;
-    if (rows.length === 0) return <EmptyState title="No usage" body="The usage ledger has no jobs in this range." />;
     return (
       <Card className="mt-4 overflow-x-auto">
-        <table className="app-table min-w-[760px]">
+        <div className="mb-3 flex items-end justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold text-[#1e3a5f]">Customer usage ranking</h2>
+            <p className="text-xs text-[var(--muted)]">Open any row for a full individual customer report.</p>
+          </div>
+        </div>
+        <table className="app-table min-w-[860px]">
           <thead>
             <tr>
               <th>Customer</th>
@@ -282,6 +510,7 @@ function ReportTable({ section, tables }: { section: ReportSection; tables: Reco
               <th>Remaining</th>
               <th>Utilization</th>
               <th>Exports in range</th>
+              <th>Report</th>
             </tr>
           </thead>
           <tbody>
@@ -298,6 +527,11 @@ function ReportTable({ section, tables }: { section: ReportSection; tables: Reco
                 <td>{String(row.remaining)}</td>
                 <td>{row.utilization === null ? "Unlimited or unset" : `${row.utilization}%`}</td>
                 <td>{String(row.exports)}</td>
+                <td>
+                  <Link href={`/reports/customer/${row.id}?preset=${preset}`} className="font-semibold text-[#1e3a5f]">
+                    View
+                  </Link>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -305,7 +539,10 @@ function ReportTable({ section, tables }: { section: ReportSection; tables: Reco
       </Card>
     );
   }
-  if ((section === "subscriptions") && Array.isArray(tables.subscriptions)) {
+  if (section === "usage" && Array.isArray(tables.ranked)) {
+    return <EmptyState title="No usage" body="The usage ledger has no jobs in this range." />;
+  }
+  if (section === "subscriptions" && Array.isArray(tables.subscriptions)) {
     const rows = tables.subscriptions as Array<Record<string, unknown>>;
     if (rows.length === 0) return <EmptyState title="No subscriptions" body="No subscriptions were created in this range." />;
     return (
@@ -319,6 +556,7 @@ function ReportTable({ section, tables }: { section: ReportSection; tables: Reco
               <th>Start</th>
               <th>Expiry</th>
               <th>Catalog price</th>
+              <th>Report</th>
             </tr>
           </thead>
           <tbody>
@@ -334,6 +572,11 @@ function ReportTable({ section, tables }: { section: ReportSection; tables: Reco
                 <td>{format(new Date(String(row.startDate)), "dd MMM yyyy")}</td>
                 <td>{format(new Date(String(row.expiryDate)), "dd MMM yyyy")}</td>
                 <td>{money(Number(row.priceCents))} catalog</td>
+                <td>
+                  <Link href={`/reports/customer/${row.id}?preset=${preset}`} className="font-semibold text-[#1e3a5f]">
+                    View
+                  </Link>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -354,6 +597,7 @@ function ReportTable({ section, tables }: { section: ReportSection; tables: Reco
               <th>Status</th>
               <th>Reference</th>
               <th>Date</th>
+              <th>Report</th>
             </tr>
           </thead>
           <tbody>
@@ -368,6 +612,11 @@ function ReportTable({ section, tables }: { section: ReportSection; tables: Reco
                 <td>{String(row.status)}</td>
                 <td>{String(row.reference)}</td>
                 <td>{format(new Date(String(row.createdAt)), "dd MMM yyyy")}</td>
+                <td>
+                  <Link href={`/reports/customer/${row.id}?preset=${preset}`} className="font-semibold text-[#1e3a5f]">
+                    View
+                  </Link>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -412,16 +661,24 @@ function ReportTable({ section, tables }: { section: ReportSection; tables: Reco
     );
   }
   const latest = Array.isArray(tables.latest) ? (tables.latest as Array<Record<string, unknown>>) : [];
-  if (latest.length === 0) return <EmptyState title="No registrations in this range" body="Customers created before the selected dates stay in the totals and are omitted from this list." />;
+  if (latest.length === 0) {
+    if (section === "overview") return null;
+    return <EmptyState title="No registrations in this range" body="Customers created before the selected dates stay in the totals and are omitted from this list." />;
+  }
   return (
     <Card className="mt-4 overflow-x-auto">
-      <table className="app-table min-w-[640px]">
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold text-[#1e3a5f]">Recent registrations</h2>
+        <p className="text-xs text-[var(--muted)]">Open the customer report for usage and payment detail.</p>
+      </div>
+      <table className="app-table min-w-[720px]">
         <thead>
           <tr>
             <th>Customer</th>
             <th>Email</th>
             <th>Status</th>
             <th>Registered</th>
+            <th>Report</th>
           </tr>
         </thead>
         <tbody>
@@ -436,6 +693,11 @@ function ReportTable({ section, tables }: { section: ReportSection; tables: Reco
               <td>{String(row.email)}</td>
               <td>{String(row.status)}</td>
               <td>{format(new Date(String(row.createdAt)), "dd MMM yyyy")}</td>
+              <td>
+                <Link href={`/reports/customer/${row.id}?preset=${preset}`} className="font-semibold text-[#1e3a5f]">
+                  View
+                </Link>
+              </td>
             </tr>
           ))}
         </tbody>

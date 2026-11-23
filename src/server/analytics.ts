@@ -41,6 +41,24 @@ function bucket(dates: Date[], grain: "day" | "month"): Point[] {
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([label, value]) => ({ label, value }));
 }
 
+function bucketSum(entries: Array<{ at: Date; value: number }>, grain: "day" | "month"): Point[] {
+  const map = new Map<string, number>();
+  for (const entry of entries) {
+    const key = format(entry.at, grain === "month" ? "yyyy-MM" : "MM-dd");
+    map.set(key, (map.get(key) ?? 0) + entry.value);
+  }
+  return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([label, value]) => ({ label, value }));
+}
+
+export type ReportCharts = {
+  acquisition: Point[];
+  split: Slice[];
+  byMonth: Point[];
+  plans: Slice[];
+  secondary?: Point[];
+  ranking?: Point[];
+};
+
 function customerWhere(filters: ReportFilters, ids: string[]): Prisma.CustomerWhereInput {
   const pool = filters.customerId ? ids.filter((id) => id === filters.customerId) : ids;
   const where: Prisma.CustomerWhereInput = {
@@ -60,6 +78,17 @@ function customerWhere(filters: ReportFilters, ids: string[]): Prisma.CustomerWh
   return where;
 }
 
+function asCharts(charts: ReportCharts): ReportCharts {
+  return {
+    acquisition: charts.acquisition ?? [],
+    split: charts.split ?? [],
+    byMonth: charts.byMonth ?? [],
+    plans: charts.plans ?? [],
+    secondary: charts.secondary ?? [],
+    ranking: charts.ranking ?? [],
+  };
+}
+
 export async function getAnalytics(db: PrismaClient, section: ReportSection, filters: ReportFilters) {
   const { range } = filters;
   const generatedAt = new Date();
@@ -72,7 +101,7 @@ export async function getAnalytics(db: PrismaClient, section: ReportSection, fil
     section,
     range,
     kpis: current.kpis.map((kpi, index) => ({ ...kpi, previous: previous.kpis[index]?.value ?? null })),
-    charts: current.charts,
+    charts: asCharts(current.charts as ReportCharts),
     tables: current.tables,
     notes: current.notes,
     total: current.total,
@@ -177,12 +206,17 @@ async function overviewMetrics(db: PrismaClient, filters: ReportFilters, from: D
       finance.kpis[2],
     ],
     charts: {
-      acquisition: customers.charts.acquisition,
+      acquisition: usage.charts.acquisition,
       split: usage.charts.split,
-      byMonth: finance.charts.byMonth,
+      byMonth: usage.charts.byMonth,
       plans: customers.charts.plans,
+      secondary: usage.charts.secondary,
+      ranking: finance.charts.byMonth.length > 0 ? finance.charts.byMonth : usage.charts.ranking,
     },
-    tables: customers.tables,
+    tables: {
+      latest: customers.tables.latest,
+      ranked: usage.tables.ranked,
+    },
   };
 }
 
@@ -239,15 +273,23 @@ async function usageMetrics(db: PrismaClient, filters: ReportFilters, from: Date
     return {
       id,
       name: person?.name ?? id,
-      plan: subscription?.plan.name ?? "—",
+      plan: subscription?.plan?.name ?? "—",
       allowed,
       consumed,
       remaining: Math.max(0, allowed - consumed),
       utilization: allowed > 0 ? Math.round((consumed / allowed) * 1000) / 10 : null,
       exports: stats.exports,
+      credits: stats.credits,
+      jobs: stats.jobs,
       demoLabel: person?.demoLabel,
     };
   });
+  const grain = to.getTime() - from.getTime() > 90 * 86400000 ? "month" : "day";
+  const creditTrend = bucketSum(
+    rows.filter((row) => row.status === "SUCCESS").map((row) => ({ at: row.createdAt, value: row.creditsConsumed })),
+    grain,
+  );
+  const jobTrend = bucket(rows.map((row) => row.createdAt), grain);
   return {
     total: rows.length,
     notes: ["Failed jobs are not counted as exports or credits. Recording sessions are counted only when a source recording was stored."],
@@ -261,7 +303,7 @@ async function usageMetrics(db: PrismaClient, filters: ReportFilters, from: Date
       { label: "Storage (MB)", value: storage._sum.storageMb ?? 0, previous: null, format: "number" as const, note: "Sum of recorded storage only" },
     ],
     charts: {
-      acquisition: bucket(rows.map((row) => row.createdAt), to.getTime() - from.getTime() > 90 * 86400000 ? "month" : "day"),
+      acquisition: jobTrend,
       split: [
         { label: "Successful", value: success, color: "#2c7a4a" },
         { label: "Failed", value: failed, color: "#9b1c2a" },
@@ -272,6 +314,8 @@ async function usageMetrics(db: PrismaClient, filters: ReportFilters, from: Date
         value,
         color: ["#1e3a5f", "#3d6f9a", "#8d6414", "#9b1c2a"][index],
       })),
+      secondary: creditTrend,
+      ranking: ranked.slice(0, 8).map((row) => ({ label: row.name, value: row.credits })),
     },
     tables: { ranked },
   };
@@ -497,15 +541,32 @@ async function financeMetrics(db: PrismaClient, filters: ReportFilters, from: Da
       { label: "Simulated, not collected", value: sum(simulated.filter((row) => row.status === "PAID")), previous: null, format: "money" as const },
     ],
     charts: {
-      acquisition: bucket(collected.map((row) => row.paidAt ?? row.createdAt), "month"),
+      acquisition: bucketSum(
+        collected.map((row) => ({ at: row.paidAt ?? row.createdAt, value: row.amountCents / 100 })),
+        "month",
+      ),
       split: [
         { label: "Collected", value: collected.length, color: "#2c7a4a" },
         { label: "Pending", value: pending.length, color: "#8d6414" },
         { label: "Failed", value: failed.length, color: "#9b1c2a" },
         { label: "Simulated", value: simulated.length, color: "#5c6b7a" },
       ],
-      byMonth: [],
-      plans: [],
+      byMonth: bucketSum(
+        collected.map((row) => ({ at: row.paidAt ?? row.createdAt, value: row.amountCents / 100 })),
+        "month",
+      ),
+      plans: [
+        { label: "Collected", value: sum(collected), color: "#2c7a4a" },
+        { label: "Pending", value: sum(pending), color: "#8d6414" },
+        { label: "Refunded", value: sum(refunded), color: "#9b1c2a" },
+      ],
+      ranking: [...collected.reduce((map, row) => {
+        map.set(row.customer.name, (map.get(row.customer.name) ?? 0) + row.amountCents / 100);
+        return map;
+      }, new Map<string, number>()).entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(([label, value]) => ({ label, value })),
     },
     tables: {
       payments: pageRows.map((row) => ({
@@ -600,6 +661,86 @@ async function activityMetrics(db: PrismaClient, filters: ReportFilters, from: D
         createdAt: row.createdAt,
         result: row.result,
       })),
+    },
+  };
+}
+
+export async function getCustomerReport(db: PrismaClient, customerId: string, tenant: string, range: ReportRange) {
+  const customer = await db.customer.findFirst({
+    where: { id: customerId, tenant, deletedAt: null },
+    include: {
+      subscriptions: { orderBy: { createdAt: "desc" }, take: 3, include: { plan: true } },
+      machines: { where: { deletedAt: null }, take: 10 },
+      profile: true,
+    },
+  });
+  if (!customer) return null;
+  const filters: ReportFilters = {
+    tenant,
+    range,
+    customerId,
+    page: 1,
+    pageSize: 12,
+  };
+  const [usage, finance, activity] = await Promise.all([
+    usageMetrics(db, filters, range.from, range.to),
+    financeMetrics(db, filters, range.from, range.to),
+    activityMetrics(db, filters, range.from, range.to),
+  ]);
+  const subscription = customer.subscriptions[0] ?? null;
+  return {
+    customer: {
+      id: customer.id,
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      status: customer.status,
+      createdAt: customer.createdAt,
+      lastLoginAt: customer.lastLoginAt,
+      company: customer.profile?.company ?? null,
+      plan: subscription?.plan?.name ?? null,
+      planStatus: subscription?.status ?? null,
+      exportAllowance: subscription?.exportAllowance ?? 0,
+      exportsUsed: subscription?.exportsUsed ?? 0,
+      creditsRemaining: subscription?.creditsRemaining ?? 0,
+      machines: customer.machines.map((machine) => ({
+        id: machine.id,
+        machineId: machine.machineId,
+        model: machine.model,
+        status: machine.status,
+        lastSeenAt: machine.lastSeenAt,
+      })),
+    },
+    generatedAt: new Date(),
+    range,
+    kpis: [
+      usage.kpis[1],
+      usage.kpis[4],
+      usage.kpis[5],
+      finance.kpis[0],
+      activity.kpis[0],
+      {
+        label: "Plan utilization",
+        value:
+          subscription && subscription.exportAllowance > 0
+            ? Math.round((subscription.exportsUsed / subscription.exportAllowance) * 1000) / 10
+            : null,
+        previous: null,
+        format: "percent" as const,
+      },
+    ],
+    charts: {
+      jobs: usage.charts.acquisition,
+      credits: usage.charts.secondary ?? [],
+      outcomes: usage.charts.split,
+      durations: usage.charts.plans,
+      revenue: finance.charts.acquisition,
+      logins: activity.charts.acquisition,
+    },
+    tables: {
+      ranked: usage.tables.ranked,
+      payments: finance.tables.payments,
+      audit: activity.tables.audit,
     },
   };
 }
